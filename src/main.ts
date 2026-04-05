@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, autoUpdater } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -728,6 +728,40 @@ app.on('ready', () => {
   }, 900);
 
   setTimeout(() => sendStartupStatus('Pronto.'), 1400);
+
+  // ── Auto-updater (Squirrel.Windows via update.electronjs.org) ───────────────
+  if (app.isPackaged) {
+    const feedURL = `https://update.electronjs.org/jeanvilanova/drivergo-desktop/win32/${app.getVersion()}`;
+    try {
+      autoUpdater.setFeedURL({ url: feedURL });
+
+      autoUpdater.on('update-downloaded', (_event, _notes, releaseName) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (!win) { autoUpdater.quitAndInstall(); return; }
+
+        dialog.showMessageBox(win, {
+          type: 'info',
+          title: 'Atualização disponível',
+          message: `Nova versão ${releaseName} baixada.`,
+          detail: 'O DriveGO será reiniciado para aplicar a atualização.',
+          buttons: ['Reiniciar agora', 'Mais tarde'],
+          defaultId: 0,
+        }).then(({ response }) => {
+          if (response === 0) autoUpdater.quitAndInstall();
+        });
+      });
+
+      autoUpdater.on('error', (err) => {
+        logWarn('sistema', 'AutoUpdater erro', String(err));
+      });
+
+      // Check on startup, then every 4 hours
+      setTimeout(() => autoUpdater.checkForUpdates(), 10_000);
+      setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
+    } catch (err) {
+      logWarn('sistema', 'AutoUpdater não disponível', String(err));
+    }
+  }
 
   // ── Backup scheduler — checks every minute if a backup is due ──────────────
   setInterval(() => {

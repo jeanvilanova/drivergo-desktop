@@ -1,7 +1,7 @@
 {
   "name": "drivergo-desktop",
   "productName": "DriveGo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Acesse seu armazenamento em nuvem",
   "main": ".vite/build/main.js",
   "private": true,
