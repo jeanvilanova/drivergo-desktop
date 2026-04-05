@@ -4,6 +4,9 @@ import type { FolderStatus, SyncFolderInfo, DefaultFolder, LogEntry, BackupConfi
 declare global {
   interface Window {
     electronAPI: {
+      // App info
+      getVersion: () => Promise<string>;
+
       // File / URL helpers
       openFiles: () => Promise<string[]>;
       openExternal: (url: string) => Promise<void>;

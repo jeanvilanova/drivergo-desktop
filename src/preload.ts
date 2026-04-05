@@ -89,6 +89,9 @@ export interface DriveSyncProgress {
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // App info
+  getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+
   // File operations
   openFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog:openFiles'),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),

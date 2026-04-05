@@ -44,7 +44,7 @@ class ErrorBoundary extends Component<{ children: ReactNode; onReset: () => void
 type NavView = 'files' | 'sync' | 'storage' | 'drive' | 'backup' | 'log' | 'about';
 
 // ── Startup splash ────────────────────────────────────────────────────────────
-function StartupSplash({ status }: { status: string }) {
+function StartupSplash({ status, version }: { status: string; version: string }) {
   return (
     <div className="splash" style={{ flexDirection: 'column', gap: 20 }}>
       {/* Logo */}
@@ -72,7 +72,7 @@ function StartupSplash({ status }: { status: string }) {
 
       {/* Version */}
       <div style={{ fontSize: 10, color: '#3a4a5a', position: 'absolute', bottom: 20 }}>
-        Versão 1.0.0 · SuporteGO
+        Versão {version} · SuporteGO
       </div>
     </div>
   );
@@ -86,8 +86,11 @@ function App() {
   const [syncFolders, setSyncFolders] = useState<SyncFolderInfo[]>([]);
   const [errorBadge, setErrorBadge] = useState(0);
   const [splashStatus, setSplashStatus] = useState('Inicializando DriveGO…');
+  const [appVersion, setAppVersion] = useState('...');
 
   useEffect(() => {
+    window.electronAPI.getVersion().then(setAppVersion);
+
     // Subscribe to startup status messages from main process
     const statusHandler = window.electronAPI.onAppStatus((msg: string) => {
       setSplashStatus(msg);
@@ -114,7 +117,7 @@ function App() {
   }, []);
 
   // Loading splash
-  if (user === undefined) return <StartupSplash status={splashStatus} />;
+  if (user === undefined) return <StartupSplash status={splashStatus} version={appVersion} />;
 
   // Login
   if (user === null) return (

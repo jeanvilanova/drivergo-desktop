@@ -79,7 +79,7 @@ function handleSquirrelEvent(): boolean {
   <div class="tagline">Sincronização e backup em nuvem</div>
   <div class="status" id="status">Preparando instalação…</div>
   <div class="bar-outer"><div class="bar-inner" id="bar" style="width:0%"></div></div>
-  <div class="version">Versão 1.0.0 · SuporteGO</div>
+  <div class="version">Versão ${app.getVersion()} · SuporteGO</div>
   <script>
     const steps = [
       [10,  'Criando arquivos do sistema…'],
@@ -494,6 +494,8 @@ function startSavedWatchers() {
 }
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
+
+ipcMain.handle('app:getVersion', () => app.getVersion());
 
 ipcMain.handle('dialog:openFiles', async () => {
   if (!mainWindow) return [];

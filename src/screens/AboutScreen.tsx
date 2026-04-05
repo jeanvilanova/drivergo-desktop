@@ -9,8 +9,10 @@ const SITE_URL   = 'https://drivego.app.br';
 
 export default function AboutScreen() {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [version, setVersion] = useState('...');
 
   useEffect(() => {
+    window.electronAPI.getVersion().then(setVersion);
     QRCode.toDataURL(WA_URL, {
       width: 240,
       margin: 3,
@@ -76,7 +78,7 @@ export default function AboutScreen() {
               background: 'rgba(92,174,255,.1)', border: '1px solid rgba(92,174,255,.2)',
               fontSize: 11, color: '#5caeff', fontWeight: 600,
             }}>
-              Versão 1.0.0
+              Versão {version}
             </div>
           </div>
         </div>
