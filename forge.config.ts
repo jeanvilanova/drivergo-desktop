@@ -10,12 +10,15 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    // Unpack 7-Zip binary so it can be executed from outside the asar archive
-    asarUnpack: '**/node_modules/7zip-bin/**',
     name: 'DriveGo',
     executableName: 'drivergo',
     icon: './assets/icon',
-    extraResource: ['./assets'],
+    // Copy 7za.exe directly into resources/ so it's always accessible at runtime.
+    // asarUnpack doesn't work when Vite bundles the main process (no node_modules inside asar).
+    extraResource: [
+      './assets',
+      './node_modules/7zip-bin/win/x64/7za.exe',
+    ],
   },
   rebuildConfig: {},
   makers: [

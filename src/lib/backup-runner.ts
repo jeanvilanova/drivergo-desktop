@@ -15,19 +15,12 @@ const execFileAsync = promisify(execFile);
 // We build the path directly from process.resourcesPath to avoid issues with
 // how Vite bundles require() calls that return stale asar-internal paths.
 function get7zaPath(): string {
-  const exeName = process.platform === 'win32' ? '7za.exe' : '7za';
-  const arch    = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const subdir  = process.platform === 'win32' ? path.join('win', arch)
-                : process.platform === 'darwin' ? 'mac'
-                : path.join('linux', arch);
-
   if (app.isPackaged) {
-    // In packaged app: resources/app.asar.unpacked/node_modules/7zip-bin/...
-    return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', subdir, exeName);
+    // 7za.exe is copied via extraResource into the resources/ folder alongside app.asar
+    return path.join(process.resourcesPath, '7za.exe');
   }
-
-  // In dev: node_modules/7zip-bin/... relative to project root
-  return path.join(__dirname, '..', '..', 'node_modules', '7zip-bin', subdir, exeName);
+  // In dev: resolve from node_modules (project root is two levels up from .vite/build/)
+  return path.join(__dirname, '..', '..', 'node_modules', '7zip-bin', 'win', 'x64', '7za.exe');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
