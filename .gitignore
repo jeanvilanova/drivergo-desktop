@@ -1,0 +1,30 @@
+node_modules/
+out/
+.vite/
+dist/
+*.log
+*.local
+
+# Electron build artifacts
+drivergo-darwin-x64/
+drivergo-win32-x64/
+drivergo-linux-x64/
+
+# User data / secrets
+*.env
+.env*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Zip artifacts
+drivego-brand-identity.zip
+
+# Agent/Claude internal files
+.agent/
