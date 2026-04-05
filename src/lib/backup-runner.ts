@@ -17,8 +17,11 @@ function get7zaPath(): string {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const sevenZipBin = require('7zip-bin');
-    const bin: string = sevenZipBin.path7za;
-    // In packaged app the asar.unpacked path is used automatically by the require
+    let bin: string = sevenZipBin.path7za;
+    // In packaged app, require() still returns the path inside the .asar archive.
+    // The binary is physically at app.asar.unpacked — replace the path so the OS
+    // can actually spawn the executable.
+    bin = bin.replace('app.asar' + require('path').sep, 'app.asar.unpacked' + require('path').sep);
     return bin;
   } catch {
     return '7za'; // fall back to PATH if somehow missing
