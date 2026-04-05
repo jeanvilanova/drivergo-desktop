@@ -11,21 +11,23 @@ import { logInfo, logSuccess, logError } from './logger';
 const execFileAsync = promisify(execFile);
 
 // ── 7-Zip binary resolution ───────────────────────────────────────────────────
-// In packaged app, node_modules is unpacked from asar into app.asar.unpacked.
-// The 7zip-bin package provides 7za.exe; we resolve its path at runtime.
+// In packaged app, 7zip-bin is unpacked from asar into app.asar.unpacked.
+// We build the path directly from process.resourcesPath to avoid issues with
+// how Vite bundles require() calls that return stale asar-internal paths.
 function get7zaPath(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sevenZipBin = require('7zip-bin');
-    let bin: string = sevenZipBin.path7za;
-    // In packaged app, require() still returns the path inside the .asar archive.
-    // The binary is physically at app.asar.unpacked — replace the path so the OS
-    // can actually spawn the executable.
-    bin = bin.replace('app.asar' + require('path').sep, 'app.asar.unpacked' + require('path').sep);
-    return bin;
-  } catch {
-    return '7za'; // fall back to PATH if somehow missing
+  const exeName = process.platform === 'win32' ? '7za.exe' : '7za';
+  const arch    = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const subdir  = process.platform === 'win32' ? path.join('win', arch)
+                : process.platform === 'darwin' ? 'mac'
+                : path.join('linux', arch);
+
+  if (app.isPackaged) {
+    // In packaged app: resources/app.asar.unpacked/node_modules/7zip-bin/...
+    return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '7zip-bin', subdir, exeName);
   }
+
+  // In dev: node_modules/7zip-bin/... relative to project root
+  return path.join(__dirname, '..', '..', 'node_modules', '7zip-bin', subdir, exeName);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
