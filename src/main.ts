@@ -110,7 +110,11 @@ function handleSquirrelEvent(): boolean {
       backgroundColor: '#0d1117',
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     });
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(installSplashHtml)}`);
+
+    // Write HTML to a temp file — data: URLs render unreliably in Electron
+    const tmpHtml = path.join(app.getPath('temp'), 'drivego-install.html');
+    fs.writeFileSync(tmpHtml, installSplashHtml, 'utf-8');
+    win.loadFile(tmpHtml);
 
     switch (squirrelEvent) {
       case '--squirrel-install':
@@ -122,8 +126,11 @@ function handleSquirrelEvent(): boolean {
         break;
     }
 
-    // Show splash for 3.5 s then quit
-    setTimeout(() => app.quit(), 3500);
+    // Show splash for 3.5 s then quit (clean up temp file after)
+    setTimeout(() => {
+      try { fs.unlinkSync(tmpHtml); } catch { /* ignore */ }
+      app.quit();
+    }, 3500);
   });
 
   return true;
