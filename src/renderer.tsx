@@ -48,13 +48,33 @@ function StartupSplash({ status, version }: { status: string; version: string })
   return (
     <div className="splash" style={{ flexDirection: 'column', gap: 20 }}>
       {/* Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <svg width="36" height="36" viewBox="0 0 14 14" fill="none">
-          <path d="M7 1C4.2 1 2 3.2 2 6c0 .5.1 1 .3 1.4A2.5 2.5 0 0 0 2.5 12h9a2 2 0 0 0 .2-4A4 4 0 0 0 7 1z" fill="#5caeff" opacity="0.95"/>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <svg width="48" height="48" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Nuvem traseira */}
+          <path d="M22 65 Q22 50 35 50 Q36 40 46 40 Q54 33 63 38 Q72 35 76 44 Q84 44 84 54 Q84 65 72 65 Z" fill="#3a8ee0"/>
+          {/* Nuvem frontal */}
+          <path d="M18 68 Q18 53 32 53 Q33 42 44 42 Q53 35 63 41 Q73 38 77 48 Q86 48 86 59 Q86 70 73 70 H28 Q18 70 18 68 Z" fill="#5caeff"/>
+          {/* Brilho */}
+          <ellipse cx="52" cy="46" rx="14" ry="6" fill="white" opacity="0.2" transform="rotate(-10 52 46)"/>
+          {/* WiFi */}
+          <path d="M14 38 Q10 30 16 24" stroke="#34d3f5" strokeWidth="2.8" fill="none" strokeLinecap="round" opacity="0.75"/>
+          <path d="M18 42 Q12 31 20 22" stroke="#34d3f5" strokeWidth="2.2" fill="none" strokeLinecap="round" opacity="0.9"/>
+          <path d="M22 46 Q14 32 23 20" stroke="#34d3f5" strokeWidth="1.6" fill="none" strokeLinecap="round" opacity="0.55"/>
+          {/* Cadeado argola */}
+          <path d="M37 56 Q37 46 46 46 Q55 46 55 56" stroke="white" strokeWidth="4" fill="none" strokeLinecap="round"/>
+          {/* Cadeado corpo */}
+          <rect x="30" y="56" width="28" height="22" rx="4" fill="#fdc72e"/>
+          {/* Buraco chave */}
+          <circle cx="44" cy="65" r="4" fill="white" opacity="0.9"/>
+          <rect x="42" y="65" width="4" height="7" rx="2" fill="white" opacity="0.9"/>
+          {/* Escudo */}
+          <path d="M60 58 Q60 54 64 53 L72 53 Q76 54 76 58 L76 66 Q76 72 68 75 Q60 72 60 66 Z" fill="#2dbe6c"/>
+          {/* Checkmark */}
+          <path d="M63 65 L66.5 68.5 L73 61" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
         </svg>
-        <span style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-1px', lineHeight: 1 }}>
-          <span style={{ color: '#fff' }}>Drive</span>
-          <span style={{ color: '#5caeff' }}>GO</span>
+        <span style={{ fontSize: 28, fontWeight: 900, letterSpacing: '-1px', lineHeight: 1, fontFamily: "'Nunito', 'Segoe UI', sans-serif" }}>
+          <span style={{ color: '#5caeff' }}>Drive</span>
+          <span style={{ color: '#fdc72e' }}>GO</span>
         </span>
       </div>
 
