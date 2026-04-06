@@ -1,6 +1,6 @@
 export interface FolderStatus {
   localPath: string;
-  status: 'idle' | 'syncing' | 'error' | 'watching';
+  status: 'idle' | 'syncing' | 'error' | 'watching' | 'paused';
   pendingFiles: number;
   syncedFiles: number;
   totalFiles: number;

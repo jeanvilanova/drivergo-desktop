@@ -98,6 +98,19 @@ export const IconDrive = ({ size = 16 }) => svgPaths([
   'M18 14.5h.01',
 ], size);
 
+export const IconPause = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </svg>
+);
+
+export const IconPlay = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+    <polygon points="5,3 19,12 5,21" />
+  </svg>
+);
+
 export const IconInfo = ({ size = 16 }) => svgPaths([
   'M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2 2 6.48 2 12s4.48 10 10 10z',
   'M12 16v-4M12 8h.01',

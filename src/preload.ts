@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 export interface FolderStatus {
   localPath: string;
-  status: 'idle' | 'syncing' | 'error' | 'watching';
+  status: 'idle' | 'syncing' | 'error' | 'watching' | 'paused';
   pendingFiles: number;
   syncedFiles: number;
   totalFiles: number;
@@ -91,6 +91,7 @@ export interface DriveSyncProgress {
 contextBridge.exposeInMainWorld('electronAPI', {
   // App info
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
+  generateQR: (url: string): Promise<string> => ipcRenderer.invoke('qr:generate', url),
 
   // File operations
   openFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog:openFiles'),
@@ -105,7 +106,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   syncAddFolder: (localPath: string, name: string): Promise<SyncFolderInfo> =>
     ipcRenderer.invoke('sync:addFolder', localPath, name),
   syncRemoveFolder: (localPath: string): Promise<void> => ipcRenderer.invoke('sync:removeFolder', localPath),
-  syncResync: (localPath: string): Promise<void> => ipcRenderer.invoke('sync:resync', localPath),
+  syncResync:  (localPath: string): Promise<void> => ipcRenderer.invoke('sync:resync', localPath),
+  syncPause:   (localPath: string): Promise<void> => ipcRenderer.invoke('sync:pause', localPath),
+  syncResume:  (localPath: string): Promise<void> => ipcRenderer.invoke('sync:resume', localPath),
 
   // Push events from main to renderer
   onSyncStatus: (cb: (status: FolderStatus) => void) => {

@@ -6,6 +6,7 @@ declare global {
     electronAPI: {
       // App info
       getVersion: () => Promise<string>;
+      generateQR: (url: string) => Promise<string>;
 
       // File / URL helpers
       openFiles: () => Promise<string[]>;
@@ -19,7 +20,9 @@ declare global {
       syncPickFolder: () => Promise<string | null>;
       syncAddFolder: (localPath: string, name: string) => Promise<SyncFolderInfo>;
       syncRemoveFolder: (localPath: string) => Promise<void>;
-      syncResync: (localPath: string) => Promise<void>;
+      syncResync:  (localPath: string) => Promise<void>;
+      syncPause:   (localPath: string) => Promise<void>;
+      syncResume:  (localPath: string) => Promise<void>;
       onSyncStatus: (cb: (status: FolderStatus) => void) => void;
       offSyncStatus: () => void;
 

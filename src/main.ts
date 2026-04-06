@@ -174,7 +174,7 @@ function getIconPath(): string {
 
 interface FolderStatus {
   localPath: string;
-  status: 'idle' | 'syncing' | 'error' | 'watching';
+  status: 'idle' | 'syncing' | 'error' | 'watching' | 'paused';
   pendingFiles: number;
   syncedFiles: number;
   totalFiles: number;
@@ -187,6 +187,7 @@ const watchers       = new Map<string, chokidar.FSWatcher>();
 const debounceTimers = new Map<string, NodeJS.Timeout>();
 const uploadQueues   = new Map<string, Set<string>>();
 const activeUploads  = new Map<string, boolean>();
+const pausedFolders  = new Set<string>(); // pastas com sync pausada
 
 // Track which folders already received their initial sync this session
 const initialSyncDone = new Set<string>();
@@ -364,6 +365,7 @@ async function processQueue(folder: SyncFolderConfig) {
 
 function scheduleUpload(folder: SyncFolderConfig, filePath: string) {
   const { localPath } = folder;
+  if (pausedFolders.has(localPath)) return; // ignorar se pausado
   const key = `${localPath}:${filePath}`;
 
   if (debounceTimers.has(key)) clearTimeout(debounceTimers.get(key)!);
@@ -418,6 +420,37 @@ function stopWatcher(localPath: string) {
   uploadQueues.delete(localPath);
   statusMap.delete(localPath);
   initialSyncDone.delete(localPath);
+  pausedFolders.delete(localPath);
+}
+
+function pauseWatcher(localPath: string) {
+  if (pausedFolders.has(localPath)) return;
+  pausedFolders.add(localPath);
+
+  // Para o watcher e limpa a fila — o upload em andamento termina naturalmente
+  const w = watchers.get(localPath);
+  if (w) { w.close(); watchers.delete(localPath); }
+  uploadQueues.get(localPath)?.clear();
+
+  const timer = debounceTimers.get(localPath);
+  if (timer) { clearTimeout(timer); debounceTimers.delete(localPath); }
+
+  const prev = statusMap.get(localPath);
+  setStatus(localPath, { status: 'paused', pendingFiles: 0, lastSynced: prev?.lastSynced ?? null });
+  logInfo('sync', `Sincronização pausada: ${localPath}`);
+}
+
+function resumeWatcher(localPath: string) {
+  if (!pausedFolders.has(localPath)) return;
+  pausedFolders.delete(localPath);
+
+  const folder = getSyncFolders().find((f) => f.localPath === localPath);
+  if (!folder) return;
+
+  logInfo('sync', `Sincronização retomada: ${folder.name}`);
+  startWatcher(folder);
+  // Faz sync diferencial para pegar arquivos criados enquanto pausado
+  doInitialSync(folder, false);
 }
 
 // ─── Initial/differential sync ────────────────────────────────────────────────
@@ -514,6 +547,16 @@ function startSavedWatchers() {
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+ipcMain.handle('qr:generate', async (_e, url: string) => {
+  const QRCode = await import('qrcode');
+  return QRCode.toDataURL(url, {
+    width: 240,
+    margin: 2,
+    errorCorrectionLevel: 'H',
+    color: { dark: '#000000', light: '#ffffff' },
+  });
+});
 
 ipcMain.handle('dialog:openFiles', async () => {
   if (!mainWindow) return [];
@@ -630,6 +673,14 @@ ipcMain.handle('sync:resync', async (_e, localPath: string) => {
   if (!folder) return;
   logInfo('sync', `Ressincronização manual: ${folder.name}`);
   await doInitialSync(folder, true); // forceAll=true — re-upload everything
+});
+
+ipcMain.handle('sync:pause', (_e, localPath: string) => {
+  pauseWatcher(localPath);
+});
+
+ipcMain.handle('sync:resume', (_e, localPath: string) => {
+  resumeWatcher(localPath);
 });
 
 // Log IPC

@@ -42,8 +42,13 @@ export default function Layout({ user, view, onNav, onLogout, titlePath, syncBad
       <div className="titlebar">
         <div className="titlebar-app-name">
           <div className="titlebar-logo-mark">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 1C4.2 1 2 3.2 2 6c0 .5.1 1 .3 1.4A2.5 2.5 0 0 0 2.5 12h9a2 2 0 0 0 .2-4A4 4 0 0 0 7 1z" fill="white" opacity="0.95"/>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              {/* cloud */}
+              <path d="M2.5 11 Q2.5 8 5 8 Q5 6 7 6 Q9 5 10.5 6.5 Q12 6 12 8 Q13.5 8 13.5 9.5 Q13.5 11 11.5 11 H4 Q2.5 11 2.5 11Z" fill="white" opacity="0.92"/>
+              {/* padlock body */}
+              <rect x="4.5" y="9" width="5" height="4" rx="1" fill="#fdc72e"/>
+              {/* padlock shackle */}
+              <path d="M5.5 9 Q5.5 7 7 7 Q8.5 7 8.5 9" stroke="white" strokeWidth="1" fill="none" strokeLinecap="round"/>
             </svg>
           </div>
           <span className="titlebar-logo-text">

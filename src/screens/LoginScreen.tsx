@@ -39,8 +39,22 @@ export default function LoginScreen({ onLogin }: Props) {
           <div>
             <div className="login-brand-logo">
               <div className="login-brand-logo-mark">
-                <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                  <path d="M11 2C7.7 2 5 4.7 5 8c0 .5.1 1 .3 1.5A3.5 3.5 0 0 0 5.5 16h11a3 3 0 0 0 .3-6A5 5 0 0 0 11 2z" fill="white" opacity="0.95"/>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  {/* cloud back */}
+                  <path d="M4 16.5 Q4 12 8 12 Q8 9 11 9 Q14 7.5 16.5 9.5 Q19 9 19 12 Q21.5 12 21.5 14.5 Q21.5 17 18.5 17 H6.5 Q4 17 4 16.5Z" fill="white" opacity="0.20"/>
+                  {/* cloud front */}
+                  <path d="M3 16 Q3 12 7 12 Q7.5 9 10 9 Q13 7 15.5 9 Q18 8.5 18.5 11.5 Q21 11.5 21 14 Q21 16.5 18 16.5 H6 Q3 16.5 3 16Z" fill="white" opacity="0.88"/>
+                  {/* wifi arcs */}
+                  <path d="M1.5 12 Q0.5 9.5 2 7.5" stroke="#29d4f5" strokeWidth="1.5" fill="none" strokeLinecap="round" opacity="0.9"/>
+                  <path d="M3 13.5 Q1.5 10.5 3.5 8" stroke="#29d4f5" strokeWidth="1.2" fill="none" strokeLinecap="round" opacity="0.7"/>
+                  {/* padlock body */}
+                  <rect x="7" y="13.5" width="7" height="5.5" rx="1.5" fill="#fdc72e"/>
+                  {/* padlock shackle */}
+                  <path d="M8.5 13.5 Q8.5 11 10.5 11 Q12.5 11 12.5 13.5" stroke="white" strokeWidth="1.6" fill="none" strokeLinecap="round"/>
+                  {/* shield */}
+                  <path d="M16 13.5 Q16 12 17.5 11.5 L19.5 11.5 Q21 12 21 13.5 L21 16 Q21 18 18.5 19 Q16 18 16 16Z" fill="#2dbe6c"/>
+                  {/* checkmark */}
+                  <path d="M17.2 15.2 L18.4 16.5 L20.2 14.2" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                 </svg>
               </div>
               <span className="login-brand-logo-text">

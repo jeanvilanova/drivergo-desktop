@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import QRCode from 'qrcode';
 
 // WhatsApp deep-link com mensagem pré-preenchida
 const WA_NUMBER  = '5562982371401';
@@ -13,12 +12,7 @@ export default function AboutScreen() {
 
   useEffect(() => {
     window.electronAPI.getVersion().then(setVersion);
-    QRCode.toDataURL(WA_URL, {
-      width: 240,
-      margin: 3,
-      errorCorrectionLevel: 'H',
-      color: { dark: '#000000', light: '#ffffff' },
-    }).then(setQrDataUrl);
+    window.electronAPI.generateQR(WA_URL).then(setQrDataUrl);
   }, []);
 
   function openExternal(url: string) {

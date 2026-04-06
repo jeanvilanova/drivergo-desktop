@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import type { FolderStatus, SyncFolderInfo, DefaultFolder } from '../preload';
 import type { CloudUser } from '../lib/CloudClient';
 import {
-  IconSync, IconPlus, IconTrash, IconRefresh, IconCheck, IconInfo, IconAlert,
+  IconSync, IconPlus, IconTrash, IconRefresh, IconCheck, IconInfo, IconAlert, IconPause, IconPlay,
 } from '../components/Icons';
 
 interface Props {
@@ -12,10 +12,11 @@ interface Props {
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 const STATUS_CONFIG: Record<FolderStatus['status'], { label: string; color: string; bg: string; dot: string }> = {
-  idle:     { label: 'Aguardando',    color: 'var(--text-muted)',   bg: 'rgba(255,255,255,.06)', dot: 'rgba(255,255,255,.25)' },
-  watching: { label: 'Monitorando',   color: 'var(--accent-green)', bg: 'rgba(34,211,160,.12)',  dot: 'var(--accent-green)' },
-  syncing:  { label: 'Sincronizando', color: 'var(--accent)',       bg: 'rgba(59,154,255,.15)',  dot: 'var(--accent)' },
-  error:    { label: 'Erro',          color: 'var(--accent-red)',   bg: 'rgba(242,87,87,.12)',   dot: 'var(--accent-red)' },
+  idle:     { label: 'Aguardando',    color: 'var(--text-muted)',        bg: 'rgba(255,255,255,.06)',  dot: 'rgba(255,255,255,.25)' },
+  watching: { label: 'Monitorando',   color: 'var(--accent-green)',      bg: 'rgba(34,211,160,.12)',   dot: 'var(--accent-green)' },
+  syncing:  { label: 'Sincronizando', color: 'var(--accent)',            bg: 'rgba(59,154,255,.15)',   dot: 'var(--accent)' },
+  error:    { label: 'Erro',          color: 'var(--accent-red)',        bg: 'rgba(242,87,87,.12)',    dot: 'var(--accent-red)' },
+  paused:   { label: 'Pausado',       color: 'rgba(253,199,46,.9)',      bg: 'rgba(253,199,46,.10)',   dot: 'rgba(253,199,46,.8)' },
 };
 
 function StatusBadge({ status }: { status: FolderStatus['status'] }) {
@@ -128,9 +129,14 @@ function FolderIconWithStatus({ status }: { status: FolderStatus['status'] }) {
           </svg>
         )}
         {status === 'idle' && (
-          // Clock/dash for idle
           <svg width="8" height="8" viewBox="0 0 12 12" fill="none">
             <path d="M3 6h6" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+        )}
+        {status === 'paused' && (
+          <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+            <rect x="2" y="2" width="3" height="8" rx="1" fill="white"/>
+            <rect x="7" y="2" width="3" height="8" rx="1" fill="white"/>
           </svg>
         )}
       </div>
@@ -139,13 +145,17 @@ function FolderIconWithStatus({ status }: { status: FolderStatus['status'] }) {
 }
 
 // ── Folder card ───────────────────────────────────────────────────────────────
-function FolderCard({ folder, onRemove, onResync }: {
+function FolderCard({ folder, onRemove, onResync, onPause, onResume }: {
   folder: SyncFolderInfo;
   onRemove: () => void;
   onResync: () => void;
+  onPause: () => void;
+  onResume: () => void;
 }) {
   const status: FolderStatus = folder.status ?? DEFAULT_STATUS;
   const isSyncing = status.status === 'syncing';
+  const isPaused  = status.status === 'paused';
+  const isActive  = isSyncing || status.status === 'watching';
 
   return (
     <div className="folder-card">
@@ -172,7 +182,12 @@ function FolderCard({ folder, onRemove, onResync }: {
         {isSyncing && status.totalFiles > 0 && (
           <ProgressBar done={status.syncedFiles} total={status.totalFiles} />
         )}
-        {status.lastSynced && !isSyncing && (
+        {isPaused && status.lastSynced && (
+          <div style={{ marginTop: 5, fontSize: 11, color: 'rgba(253,199,46,.7)' }}>
+            Pausado · última sync: {new Date(status.lastSynced).toLocaleString('pt-BR')}
+          </div>
+        )}
+        {status.lastSynced && !isSyncing && !isPaused && (
           <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-muted)' }}>
             Última sync: {new Date(status.lastSynced).toLocaleString('pt-BR')}
           </div>
@@ -180,7 +195,28 @@ function FolderCard({ folder, onRemove, onResync }: {
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
-        <button className="btn btn-ghost btn-sm" onClick={onResync} disabled={isSyncing} title="Sincronizar agora">
+        {/* Pause / Resume — visível apenas em estados ativos ou pausado */}
+        {isActive && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onPause}
+            title="Pausar sincronização"
+            style={{ color: 'rgba(253,199,46,.85)' }}
+          >
+            <IconPause size={13} />
+          </button>
+        )}
+        {isPaused && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onResume}
+            title="Retomar sincronização"
+            style={{ color: 'var(--accent-green)' }}
+          >
+            <IconPlay size={13} />
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm" onClick={onResync} disabled={isSyncing || isPaused} title="Sincronizar agora">
           <IconRefresh size={13} />
         </button>
         <button className="btn btn-danger btn-sm" onClick={onRemove} title="Remover pasta">
@@ -348,6 +384,8 @@ export default function SyncScreen({ user, onFoldersChange }: Props) {
                   key={f.localPath} folder={f}
                   onRemove={() => handleRemove(f.localPath)}
                   onResync={() => window.electronAPI.syncResync(f.localPath)}
+                  onPause={() => window.electronAPI.syncPause(f.localPath)}
+                  onResume={() => window.electronAPI.syncResume(f.localPath)}
                 />
               ))}
             </div>
