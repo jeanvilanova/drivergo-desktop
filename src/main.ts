@@ -69,27 +69,82 @@ const pausedFolders  = new Set<string>(); // pastas com sync pausada
 // Track which folders already received their initial sync this session
 const initialSyncDone = new Set<string>();
 
+// ─── Update checker ──────────────────────────────────────────────────────────
+const RELEASES_API = 'https://api.github.com/repos/jeanvilanova/drivergo-desktop/releases/latest';
+const DOWNLOAD_URL = 'https://github.com/jeanvilanova/drivergo-desktop/releases/latest/download/DriveGo-Setup.msi';
+
+let pendingUpdateVersion: string | null = null;
+
+function parseVersion(v: string): number[] {
+  return v.replace(/^v/, '').split('.').map(Number);
+}
+
+function isNewer(remote: string, current: string): boolean {
+  const r = parseVersion(remote);
+  const c = parseVersion(current);
+  for (let i = 0; i < Math.max(r.length, c.length); i++) {
+    const diff = (r[i] ?? 0) - (c[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+async function checkForUpdates(silent = true): Promise<void> {
+  try {
+    const res = await fetch(RELEASES_API, {
+      headers: { 'User-Agent': `DriveGO/${app.getVersion()}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { tag_name: string };
+    const remote = data.tag_name;
+    if (!isNewer(remote, app.getVersion())) return;
+
+    pendingUpdateVersion = remote;
+    rebuildTrayMenu();
+
+    tray?.displayBalloon?.({
+      title: `DriveGO ${remote} disponível`,
+      content: 'Clique com botão direito na bandeja e escolha "Instalar atualização".',
+      iconType: 'info',
+    });
+    logInfo('sistema', `Nova versão disponível: ${remote}`);
+  } catch {
+    if (!silent) logWarn('sistema', 'Não foi possível verificar atualizações');
+  }
+}
+
 // ─── Tray ────────────────────────────────────────────────────────────────────
+const buildMenu = () => Menu.buildFromTemplate([
+  {
+    label: mainWindow?.isVisible() ? 'Ocultar DriveGO' : 'Mostrar DriveGO',
+    click: () => toggleWindow(),
+  },
+  { type: 'separator' },
+  ...(pendingUpdateVersion ? [{
+    label: `Instalar atualização ${pendingUpdateVersion}`,
+    click: () => shell.openExternal(DOWNLOAD_URL),
+  }] : []),
+  {
+    label: 'Verificar atualizações',
+    click: () => checkForUpdates(false),
+  },
+  { type: 'separator' as const },
+  {
+    label: 'Sair',
+    click: () => { isQuitting = true; app.quit(); },
+  },
+]);
+
+const rebuildTrayMenu = () => tray?.setContextMenu(buildMenu());
+
 const createTray = () => {
   const icon = nativeImage.createFromPath(getIconPath());
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('DriveGO — Sincronização em nuvem');
 
-  const buildMenu = () => Menu.buildFromTemplate([
-    {
-      label: mainWindow?.isVisible() ? 'Ocultar DriveGO' : 'Mostrar DriveGO',
-      click: () => toggleWindow(),
-    },
-    { type: 'separator' },
-    {
-      label: 'Sair',
-      click: () => { isQuitting = true; app.quit(); },
-    },
-  ]);
-
   // Recria o menu cada vez que o usuário clica com botão direito (para atualizar label)
-  tray.on('right-click', () => tray?.setContextMenu(buildMenu()));
-  tray.setContextMenu(buildMenu());
+  tray.on('right-click', () => rebuildTrayMenu());
+  rebuildTrayMenu();
 
   // Clique simples no ícone: mostra/oculta a janela
   tray.on('click', () => toggleWindow());
@@ -704,6 +759,10 @@ app.on('ready', () => {
   }, 900);
 
   setTimeout(() => sendStartupStatus('Pronto.'), 1400);
+
+  // ── Update checker — verifica 30s após iniciar e depois a cada 4h ──────────
+  setTimeout(() => checkForUpdates(), 30_000);
+  setInterval(() => checkForUpdates(), 4 * 60 * 60_000);
 
   // ── Backup scheduler — checks every minute if a backup is due ──────────────
   setInterval(() => {
