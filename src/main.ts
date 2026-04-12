@@ -309,8 +309,13 @@ const pauseWatcher = (localPath: string) => {
   if (w) { w.close(); watchers.delete(localPath); }
   uploadQueues.get(localPath)?.clear();
 
-  const timer = debounceTimers.get(localPath);
-  if (timer) { clearTimeout(timer); debounceTimers.delete(localPath); }
+  // Timers are keyed as `${localPath}:${filePath}` — clear all for this folder
+  for (const [key, timer] of debounceTimers) {
+    if (key.startsWith(`${localPath}:`)) {
+      clearTimeout(timer);
+      debounceTimers.delete(key);
+    }
+  }
 
   const prev = statusMap.get(localPath);
   setStatus(localPath, { status: 'paused', pendingFiles: 0, lastSynced: prev?.lastSynced ?? null });
@@ -444,6 +449,8 @@ ipcMain.handle('profile:deactivate', () => {
   activeUploads.clear();
   pausedFolders.clear();
   initialSyncDone.clear();
+  for (const timer of debounceTimers.values()) clearTimeout(timer);
+  debounceTimers.clear();
   deactivateProfile();
 });
 
@@ -549,7 +556,10 @@ ipcMain.handle('sync:addFolder', async (_e, localPath: string, name: string) => 
   logInfo('pasta', `Pasta adicionada: ${name}`, localPath);
   startWatcher(folder);
   initialSyncDone.add(localPath); // mark as handled — doInitialSync below covers it
-  doInitialSync(folder).catch(console.error);
+  doInitialSync(folder).catch((err) => {
+    setStatus(localPath, { status: 'error', errorMessage: err instanceof Error ? err.message : String(err) });
+    logError('sync', `Erro na sincronização inicial: ${name}`, String(err));
+  });
   return {
     ...folder,
     status: statusMap.get(localPath) ?? {
@@ -725,5 +735,7 @@ app.on('before-quit', () => {
   logInfo('sistema', 'Aplicativo encerrado');
   tray?.destroy();
   for (const watcher of watchers.values()) watcher.close();
+  for (const timer of debounceTimers.values()) clearTimeout(timer);
+  debounceTimers.clear();
 });
 

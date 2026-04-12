@@ -94,11 +94,14 @@ async function runFirebirdBackup(cfg: BackupConfig, outFile: string): Promise<st
     : `${host}/${cfg.dbPort || '3050'}:${cfg.dbName}`;
 
   const tmpFile = outFile.replace(/\.7z$/, '.fbk');
-  await execFileAsync(gbak, [
-    '-backup', '-user', cfg.dbUser, '-password', cfg.dbPassword, source, tmpFile,
-  ]);
-  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
-  fs.unlinkSync(tmpFile);
+  try {
+    await execFileAsync(gbak, [
+      '-backup', '-user', cfg.dbUser, '-password', cfg.dbPassword, source, tmpFile,
+    ]);
+    await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
+  } finally {
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+  }
   return outFile;
 }
 
@@ -109,9 +112,12 @@ async function runSqlServerBackup(cfg: BackupConfig, outFile: string): Promise<s
   const tmpFile = outFile.replace(/\.7z$/, '.bak');
   const query = `BACKUP DATABASE [${cfg.dbName}] TO DISK = N'${tmpFile.replace(/'/g, "''")}' WITH INIT, NO_COMPRESSION;`;
 
-  await execFileAsync(sqlcmd, ['-S', server, '-U', cfg.dbUser, '-P', cfg.dbPassword, '-Q', query]);
-  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
-  fs.unlinkSync(tmpFile);
+  try {
+    await execFileAsync(sqlcmd, ['-S', server, '-U', cfg.dbUser, '-P', cfg.dbPassword, '-Q', query]);
+    await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
+  } finally {
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+  }
   return outFile;
 }
 
@@ -119,13 +125,16 @@ async function runSqlServerBackup(cfg: BackupConfig, outFile: string): Promise<s
 async function runPostgresBackup(cfg: BackupConfig, outFile: string): Promise<string> {
   const pgDump = cfg.dbToolPath || 'pg_dump';
   const tmpFile = outFile.replace(/\.7z$/, '.dump');
-  await execFileAsync(
-    pgDump,
-    ['-h', cfg.dbHost, '-p', cfg.dbPort || '5432', '-U', cfg.dbUser, '-F', 'p', '-f', tmpFile, cfg.dbName],
-    { env: { ...process.env, PGPASSWORD: cfg.dbPassword } },
-  );
-  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
-  fs.unlinkSync(tmpFile);
+  try {
+    await execFileAsync(
+      pgDump,
+      ['-h', cfg.dbHost, '-p', cfg.dbPort || '5432', '-U', cfg.dbUser, '-F', 'p', '-f', tmpFile, cfg.dbName],
+      { env: { ...process.env, PGPASSWORD: cfg.dbPassword } },
+    );
+    await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
+  } finally {
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+  }
   return outFile;
 }
 
@@ -150,9 +159,12 @@ async function runOracleBackup(cfg: BackupConfig, outFile: string): Promise<stri
   const exp        = cfg.dbToolPath || 'exp';
   const connectStr = `${cfg.dbUser}/${cfg.dbPassword}@${cfg.dbHost}:${cfg.dbPort || '1521'}/${cfg.dbName}`;
   const tmpFile    = outFile.replace(/\.7z$/, '.dmp');
-  await execFileAsync(exp, [`userid=${connectStr}`, `file=${tmpFile}`, 'full=y', 'compress=n']);
-  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
-  fs.unlinkSync(tmpFile);
+  try {
+    await execFileAsync(exp, [`userid=${connectStr}`, `file=${tmpFile}`, 'full=y', 'compress=n']);
+    await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
+  } finally {
+    if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+  }
   return outFile;
 }
 
