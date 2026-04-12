@@ -428,11 +428,22 @@ const startSavedWatchers = () => {
 // garantindo que cada usuário DriveGO tenha suas próprias configurações.
 ipcMain.handle('profile:activate', async (_e, user: ProfileUser) => {
   await activateProfile(user);
+  // Inicia os watchers DEPOIS do perfil estar ativo, garantindo que
+  // getSyncFolders() leia o sync-config.json correto para este usuário.
+  startSavedWatchers();
 });
 
-// Ativado no logout: zera o perfil ativo para que o próximo login
-// não herde configurações do usuário anterior.
+// Ativado no logout: para todos os watchers e zera o perfil ativo
+// para que o próximo usuário comece com estado limpo.
 ipcMain.handle('profile:deactivate', () => {
+  // Para todos os watchers do usuário atual
+  for (const watcher of watchers.values()) watcher.close();
+  watchers.clear();
+  statusMap.clear();
+  uploadQueues.clear();
+  activeUploads.clear();
+  pausedFolders.clear();
+  initialSyncDone.clear();
   deactivateProfile();
 });
 
@@ -670,11 +681,6 @@ app.on('ready', () => {
   setTimeout(() => {
     sendStartupStatus('Carregando configurações…');
   }, 200);
-
-  setTimeout(() => {
-    sendStartupStatus('Iniciando monitoramento de pastas…');
-    startSavedWatchers();
-  }, 500);
 
   setTimeout(() => {
     // ── Auto-restore drive mapping on startup ────────────────────────────────

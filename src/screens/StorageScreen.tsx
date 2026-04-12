@@ -42,7 +42,11 @@ export default function StorageScreen({ user }: Props) {
     <div className="empty-state">
       <div className="empty-icon-wrap"><IconStorage size={28} /></div>
       <div className="empty-title" style={{ color: 'var(--accent-red)' }}>Erro ao carregar</div>
-      <div className="empty-hint">{error}</div>
+      <div className="empty-hint">
+        {error.includes('404') || error.includes('NoSuchBucket')
+          ? 'Armazenamento ainda não configurado para esta conta. Entre em contato com o suporte.'
+          : error}
+      </div>
     </div>
   );
   if (!usage) return null;
