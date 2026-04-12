@@ -11,7 +11,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: 'DriveGo',
-    executableName: 'drivergo',
+    executableName: 'DriveGo',
     icon: './assets/icon',
     // Copy 7za.exe directly into resources/ so it's always accessible at runtime.
     // asarUnpack doesn't work when Vite bundles the main process (no node_modules inside asar).
@@ -27,9 +27,8 @@ const config: ForgeConfig = {
       manufacturer: 'SuporteGO',
       description: 'Sincronização e backup em nuvem',
       icon: './assets/icon.ico',
-      // Instala em C:\Program Files\DriveGo (requer elevação UAC)
-      programFilesFolderName: 'DriveGo',
       shortcutFolderName: 'DriveGo',
+      exe: 'DriveGo.exe',
       ui: {
         chooseDirectory: false,
       },
