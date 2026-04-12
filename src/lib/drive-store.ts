@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
+import { getProfileConfigPath } from './profile-store';
 
 export interface DriveConfig {
   letter: string;   // single uppercase letter, e.g. "G"
@@ -8,7 +9,7 @@ export interface DriveConfig {
 }
 
 function configPath() {
-  return path.join(app.getPath('userData'), 'drive-config.json');
+  return getProfileConfigPath('drive-config.json');
 }
 
 export function getDriveConfig(): DriveConfig {

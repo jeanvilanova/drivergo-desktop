@@ -1,6 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { app } from 'electron';
+import { getProfileConfigPath } from './profile-store';
 
 export type BackupType = 'files' | 'firebird' | 'sqlserver' | 'postgresql' | 'db2' | 'oracle';
 export type ScheduleType = 'daily' | 'weekly';
@@ -32,6 +31,7 @@ export interface BackupConfig {
 
   // ── Retention ─────────────────────────────────────────────────────
   keepCount: number;   // keep last N backups, delete older ones
+  compress: boolean;   // true = 7z ultra compression; false = store only (no compression)
 
   // ── Runtime state (written by runner) ─────────────────────────────
   lastRun: string | null;
@@ -48,13 +48,14 @@ export function defaultConfig(): Omit<BackupConfig, 'id' | 'name' | 'type' | 'cr
     dbFile: '', dbToolPath: '',
     schedule: 'daily', scheduleTime: '02:00', scheduleDayOfWeek: 1,
     keepCount: 7,
+    compress: true,
     lastRun: null, lastStatus: 'idle', lastError: null,
   };
 }
 
 // ── Persistence ───────────────────────────────────────────────────────────────
 function configPath() {
-  return path.join(app.getPath('userData'), 'backup-config.json');
+  return getProfileConfigPath('backup-config.json');
 }
 
 export function getBackupConfigs(): BackupConfig[] {

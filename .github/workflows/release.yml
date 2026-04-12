@@ -1,42 +1,59 @@
 name: Build & Release
 
+# Dispara quando você criar uma tag do tipo v1.0.0, v1.2.3, etc.
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: write   # necessário para criar o Release
 
 jobs:
-  release:
+  build-windows:
+    name: Build MSI (Windows)
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout do código
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Configurar Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Instalar WiX Toolset v3
+        run: choco install wixtoolset --version 3.14.0 -y
+        shell: powershell
+
+      # Recarrega o PATH para que candle.exe / light.exe sejam encontrados
+      - name: Adicionar WiX ao PATH
+        run: |
+          $wixPath = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          echo "$wixPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+
+      - name: Instalar dependências npm
         run: npm ci
 
-      - name: Build & package
+      - name: Gerar instalador MSI
         run: npm run make
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload release assets
+      # Renomeia para nome fixo — assim a URL de download da landing page
+      # nunca muda entre versões (sempre DriveGo-Setup.msi)
+      - name: Renomear MSI para nome fixo
+        run: |
+          $src = Get-ChildItem "out\make\wix\x64\*.msi" | Select-Object -First 1
+          Copy-Item $src.FullName "out\make\wix\x64\DriveGo-Setup.msi"
+        shell: powershell
+
+      - name: Publicar Release no GitHub
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            out/make/squirrel.windows/x64/DriveGo-Setup.exe
-            out/make/squirrel.windows/x64/*.nupkg
-            out/make/squirrel.windows/x64/RELEASES
+          name: "DriveGo ${{ github.ref_name }}"
           generate_release_notes: true
+          files: out/make/wix/x64/DriveGo-Setup.msi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

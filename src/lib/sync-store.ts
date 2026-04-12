@@ -1,6 +1,5 @@
-import { app } from 'electron';
 import fs from 'node:fs';
-import path from 'node:path';
+import { getProfileConfigPath } from './profile-store';
 
 export interface SyncFolderConfig {
   localPath: string;
@@ -16,7 +15,7 @@ interface SyncConfig {
 }
 
 function configPath(): string {
-  return path.join(app.getPath('userData'), 'sync-config.json');
+  return getProfileConfigPath('sync-config.json');
 }
 
 function readConfig(): SyncConfig {

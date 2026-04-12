@@ -118,7 +118,11 @@ function App() {
 
     const saved = loadSession();
     if (saved) {
-      window.electronAPI.syncSetUser(saved.id).catch(console.error);
+      // Ativa o perfil antes de restaurar as configurações, garantindo que
+      // os stores leiam os arquivos do diretório correto para este usuário.
+      window.electronAPI.setActiveProfile(saved)
+        .then(() => window.electronAPI.syncSetUser(saved.id))
+        .catch(console.error);
       setUser(saved);
     } else {
       setUser(null);
@@ -142,7 +146,11 @@ function App() {
   // Login
   if (user === null) return (
     <LoginScreen onLogin={(u) => {
-      window.electronAPI.syncSetUser(u.id).catch(console.error);
+      // Ativa o perfil do usuário antes de carregar qualquer configuração,
+      // isolando os dados de cada usuário DriveGO em sua própria pasta.
+      window.electronAPI.setActiveProfile(u)
+        .then(() => window.electronAPI.syncSetUser(u.id))
+        .catch(console.error);
       setUser(u);
     }} />
   );
@@ -160,7 +168,10 @@ function App() {
       user={user}
       view={view}
       onNav={handleNav}
-      onLogout={() => setUser(null)}
+      onLogout={() => {
+        window.electronAPI.clearActiveProfile().catch(console.error);
+        setUser(null);
+      }}
       titlePath={titlePath}
       syncBadge={syncBadge}
       errorBadge={errorBadge}

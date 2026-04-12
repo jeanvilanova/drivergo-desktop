@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, autoUpdater } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -19,137 +19,14 @@ import {
   type BackupConfig,
 } from './lib/backup-store';
 import { runBackup } from './lib/backup-runner';
-import { getDriveConfig, saveDriveConfig } from './lib/drive-store';
+import { getDriveConfig, saveDriveConfig, getDriveRoot } from './lib/drive-store';
 import {
   mapDrive, unmapDrive, restoreDriveOnStartup, getDriveStatus,
   syncMyFilesToDrive, syncSharedFilesToDrive, setDriveProgressCallback,
   type DriveSyncProgress,
 } from './lib/drive-mapper';
 import { listCloudFiles, listSharedWithMe, generateShareLink } from './lib/uploader-main';
-
-// ─── Squirrel installer events ────────────────────────────────────────────────
-// Handles install/update/uninstall events and shows a branded splash window.
-function handleSquirrelEvent(): boolean {
-  if (process.platform !== 'win32') return false;
-  const squirrelEvent = process.argv[1];
-  if (!squirrelEvent?.startsWith('--squirrel')) return false;
-
-  const updateExe = path.resolve(path.dirname(process.execPath), '..', 'Update.exe');
-  const exeName   = path.basename(process.execPath);
-
-  const spawnUpdate = (...args: string[]) => {
-    try { execFile(updateExe, args); } catch { /* non-fatal */ }
-  };
-
-  const installSplashHtml = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: #0d1117; color: #fff;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    height: 100vh; gap: 18px; user-select: none;
-    -webkit-app-region: drag;
-  }
-  .cloud { margin-bottom: 4px; }
-  .logo { font-size: 30px; font-weight: 900; letter-spacing: -1px; line-height: 1; }
-  .logo .drive { color: #5caeff; }
-  .logo .go    { color: #fdc72e; }
-  .tagline { font-size: 12px; color: #5a7a9a; }
-  .status {
-    font-size: 12px; color: #8899b4; min-height: 18px;
-    transition: opacity .3s;
-  }
-  .bar-outer {
-    width: 220px; height: 3px; border-radius: 3px;
-    background: rgba(255,255,255,.08);
-  }
-  .bar-inner {
-    height: 100%; border-radius: 3px; background: #5caeff;
-    transition: width .5s ease;
-  }
-  .version { font-size: 10px; color: #3a4a5a; margin-top: 4px; }
-</style></head>
-<body>
-  <svg class="cloud" width="72" height="72" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M22 65 Q22 50 35 50 Q36 40 46 40 Q54 33 63 38 Q72 35 76 44 Q84 44 84 54 Q84 65 72 65 Z" fill="#3a8ee0"/>
-    <path d="M18 68 Q18 53 32 53 Q33 42 44 42 Q53 35 63 41 Q73 38 77 48 Q86 48 86 59 Q86 70 73 70 H28 Q18 70 18 68 Z" fill="#5caeff"/>
-    <ellipse cx="52" cy="46" rx="14" ry="6" fill="white" opacity="0.2" transform="rotate(-10 52 46)"/>
-    <path d="M14 38 Q10 30 16 24" stroke="#34d3f5" stroke-width="2.8" fill="none" stroke-linecap="round" opacity="0.75"/>
-    <path d="M18 42 Q12 31 20 22" stroke="#34d3f5" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.9"/>
-    <path d="M22 46 Q14 32 23 20" stroke="#34d3f5" stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.55"/>
-    <path d="M37 56 Q37 46 46 46 Q55 46 55 56" stroke="white" stroke-width="4" fill="none" stroke-linecap="round"/>
-    <rect x="30" y="56" width="28" height="22" rx="4" fill="#fdc72e"/>
-    <circle cx="44" cy="65" r="4" fill="white" opacity="0.9"/>
-    <rect x="42" y="65" width="4" height="7" rx="2" fill="white" opacity="0.9"/>
-    <path d="M60 58 Q60 54 64 53 L72 53 Q76 54 76 58 L76 66 Q76 72 68 75 Q60 72 60 66 Z" fill="#2dbe6c"/>
-    <path d="M63 65 L66.5 68.5 L73 61" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  </svg>
-  <div class="logo"><span class="drive">Drive</span><span class="go">GO</span></div>
-  <div class="tagline">Sincronização e backup em nuvem</div>
-  <div class="status" id="status">Preparando instalação…</div>
-  <div class="bar-outer"><div class="bar-inner" id="bar" style="width:0%"></div></div>
-  <div class="version">Versão ${app.getVersion()} · SuporteGO</div>
-  <script>
-    const steps = [
-      [10,  'Criando arquivos do sistema…'],
-      [30,  'Registrando o aplicativo…'],
-      [55,  'Criando atalhos na Área de Trabalho…'],
-      [70,  'Configurando inicialização automática…'],
-      [88,  'Aplicando configurações finais…'],
-      [100, 'Instalação concluída!'],
-    ];
-    const bar = document.getElementById('bar');
-    const status = document.getElementById('status');
-    let i = 0;
-    function next() {
-      if (i >= steps.length) return;
-      const [pct, msg] = steps[i++];
-      bar.style.width = pct + '%';
-      status.textContent = msg;
-      if (i < steps.length) setTimeout(next, 600);
-    }
-    setTimeout(next, 300);
-  </script>
-</body></html>`;
-
-  app.on('ready', () => {
-    const win = new BrowserWindow({
-      width: 420, height: 340,
-      frame: false, resizable: false, center: true,
-      backgroundColor: '#0d1117',
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
-    });
-
-    // Write HTML to a temp file — data: URLs render unreliably in Electron
-    const tmpHtml = path.join(app.getPath('temp'), 'drivego-install.html');
-    fs.writeFileSync(tmpHtml, installSplashHtml, 'utf-8');
-    win.loadFile(tmpHtml);
-
-    switch (squirrelEvent) {
-      case '--squirrel-install':
-      case '--squirrel-updated':
-        spawnUpdate('--createShortcut', exeName);
-        break;
-      case '--squirrel-uninstall':
-        spawnUpdate('--removeShortcut', exeName);
-        break;
-    }
-
-    // Show splash for 3.5 s then quit (clean up temp file after)
-    setTimeout(() => {
-      try { fs.unlinkSync(tmpHtml); } catch { /* ignore */ }
-      app.quit();
-    }, 3500);
-  });
-
-  return true;
-}
-
-if (handleSquirrelEvent()) {
-  // Squirrel event: splash is shown, app will quit after 3.5 s
-} else {
+import { activateProfile, deactivateProfile, type ProfileUser } from './lib/profile-store';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
@@ -157,7 +34,7 @@ let tray: Tray | null = null;
 let isQuitting = false;
 
 // ── Startup status helper — feeds the renderer splash screen ─────────────────
-function sendStartupStatus(msg: string) {
+const sendStartupStatus = (msg: string) => {
   mainWindow?.webContents.send('app:status', msg);
 }
 
@@ -165,7 +42,7 @@ function sendStartupStatus(msg: string) {
 const startHidden = process.argv.includes('--hidden');
 
 // Resolve o caminho do ícone em dev e em produção (packaged)
-function getIconPath(): string {
+const getIconPath = (): string => {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'assets', 'icon.ico');
   }
@@ -193,7 +70,7 @@ const pausedFolders  = new Set<string>(); // pastas com sync pausada
 const initialSyncDone = new Set<string>();
 
 // ─── Tray ────────────────────────────────────────────────────────────────────
-function createTray() {
+const createTray = () => {
   const icon = nativeImage.createFromPath(getIconPath());
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip('DriveGO — Sincronização em nuvem');
@@ -218,7 +95,7 @@ function createTray() {
   tray.on('click', () => toggleWindow());
 }
 
-function toggleWindow() {
+const toggleWindow = () => {
   if (!mainWindow) return;
   if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
     mainWindow.hide();
@@ -229,7 +106,7 @@ function toggleWindow() {
 }
 
 // ─── Window ─────────────────────────────────────────────────────────────────
-function createWindow() {
+const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 720,
@@ -291,13 +168,13 @@ function createWindow() {
 }
 
 // ─── Status helpers ──────────────────────────────────────────────────────────
-function pushStatus(localPath: string) {
+const pushStatus = (localPath: string) => {
   if (!mainWindow) return;
   const s = statusMap.get(localPath);
   if (s) mainWindow.webContents.send('sync:status', s);
 }
 
-function setStatus(localPath: string, patch: Partial<FolderStatus>) {
+const setStatus = (localPath: string, patch: Partial<FolderStatus>) => {
   const current = statusMap.get(localPath) ?? {
     localPath,
     status: 'idle' as const,
@@ -312,7 +189,7 @@ function setStatus(localPath: string, patch: Partial<FolderStatus>) {
 }
 
 // ─── Upload queue processor ──────────────────────────────────────────────────
-async function processQueue(folder: SyncFolderConfig) {
+const processQueue = async (folder: SyncFolderConfig) => {
   const { localPath, remotePrefix } = folder;
   const userId = getSyncUserId();
   if (!userId) return;
@@ -363,7 +240,7 @@ async function processQueue(folder: SyncFolderConfig) {
   if (queue.size > 0) await processQueue(folder);
 }
 
-function scheduleUpload(folder: SyncFolderConfig, filePath: string) {
+const scheduleUpload = (folder: SyncFolderConfig, filePath: string) => {
   const { localPath } = folder;
   if (pausedFolders.has(localPath)) return; // ignorar se pausado
   const key = `${localPath}:${filePath}`;
@@ -383,7 +260,7 @@ function scheduleUpload(folder: SyncFolderConfig, filePath: string) {
 }
 
 // ─── Watcher management ──────────────────────────────────────────────────────
-function startWatcher(folder: SyncFolderConfig) {
+const startWatcher = (folder: SyncFolderConfig) => {
   const { localPath } = folder;
   if (watchers.has(localPath)) return;
 
@@ -414,7 +291,7 @@ function startWatcher(folder: SyncFolderConfig) {
   watchers.set(localPath, watcher);
 }
 
-function stopWatcher(localPath: string) {
+const stopWatcher = (localPath: string) => {
   const w = watchers.get(localPath);
   if (w) { w.close(); watchers.delete(localPath); }
   uploadQueues.delete(localPath);
@@ -423,7 +300,7 @@ function stopWatcher(localPath: string) {
   pausedFolders.delete(localPath);
 }
 
-function pauseWatcher(localPath: string) {
+const pauseWatcher = (localPath: string) => {
   if (pausedFolders.has(localPath)) return;
   pausedFolders.add(localPath);
 
@@ -440,7 +317,7 @@ function pauseWatcher(localPath: string) {
   logInfo('sync', `Sincronização pausada: ${localPath}`);
 }
 
-function resumeWatcher(localPath: string) {
+const resumeWatcher = (localPath: string) => {
   if (!pausedFolders.has(localPath)) return;
   pausedFolders.delete(localPath);
 
@@ -457,7 +334,7 @@ function resumeWatcher(localPath: string) {
 // Compares local files against what's already in the cloud and uploads only
 // what's missing. This ensures files created while the app was closed are
 // always uploaded without re-sending files that are already synced.
-async function doInitialSync(folder: SyncFolderConfig, forceAll = false) {
+const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
   const { localPath } = folder;
   const userId = getSyncUserId();
   if (!userId) return;
@@ -535,7 +412,7 @@ async function doInitialSync(folder: SyncFolderConfig, forceAll = false) {
 }
 
 // ─── Start saved watchers at launch (before userId is known) ─────────────────
-function startSavedWatchers() {
+const startSavedWatchers = () => {
   const folders = getSyncFolders();
   if (folders.length === 0) return;
   logInfo('sistema', `Carregando ${folders.length} pasta(s) salva(s)`);
@@ -545,6 +422,19 @@ function startSavedWatchers() {
 }
 
 // ─── IPC Handlers ────────────────────────────────────────────────────────────
+
+// ── Perfis de usuário ─────────────────────────────────────────────────────────
+// Ativado no login: cria diretório e profile.json para o usuário logado,
+// garantindo que cada usuário DriveGO tenha suas próprias configurações.
+ipcMain.handle('profile:activate', async (_e, user: ProfileUser) => {
+  await activateProfile(user);
+});
+
+// Ativado no logout: zera o perfil ativo para que o próximo login
+// não herde configurações do usuário anterior.
+ipcMain.handle('profile:deactivate', () => {
+  deactivateProfile();
+});
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 
@@ -732,11 +622,10 @@ ipcMain.handle('drive:generateShareLink', async (_e, filePath: string, isFolder:
 });
 
 ipcMain.handle('drive:openFolder', (_e, subfolder: 'mine' | 'shared') => {
-  const { getDriveRoot } = require('./lib/drive-store');
   const root = getDriveRoot();
   const target = subfolder === 'mine'
-    ? require('node:path').join(root, 'Meus Arquivos')
-    : require('node:path').join(root, 'Compartilhado comigo');
+    ? path.join(root, 'Meus Arquivos')
+    : path.join(root, 'Compartilhado comigo');
   shell.openPath(target);
 });
 
@@ -800,40 +689,6 @@ app.on('ready', () => {
 
   setTimeout(() => sendStartupStatus('Pronto.'), 1400);
 
-  // ── Auto-updater (Squirrel.Windows via update.electronjs.org) ───────────────
-  if (app.isPackaged) {
-    const feedURL = `https://update.electronjs.org/jeanvilanova/drivergo-desktop/win32/${app.getVersion()}`;
-    try {
-      autoUpdater.setFeedURL({ url: feedURL });
-
-      autoUpdater.on('update-downloaded', (_event, _notes, releaseName) => {
-        const win = BrowserWindow.getAllWindows()[0];
-        if (!win) { autoUpdater.quitAndInstall(); return; }
-
-        dialog.showMessageBox(win, {
-          type: 'info',
-          title: 'Atualização disponível',
-          message: `Nova versão ${releaseName} baixada.`,
-          detail: 'O DriveGO será reiniciado para aplicar a atualização.',
-          buttons: ['Reiniciar agora', 'Mais tarde'],
-          defaultId: 0,
-        }).then(({ response }) => {
-          if (response === 0) autoUpdater.quitAndInstall();
-        });
-      });
-
-      autoUpdater.on('error', (err) => {
-        logWarn('sistema', 'AutoUpdater erro', String(err));
-      });
-
-      // Check on startup, then every 4 hours
-      setTimeout(() => autoUpdater.checkForUpdates(), 10_000);
-      setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1000);
-    } catch (err) {
-      logWarn('sistema', 'AutoUpdater não disponível', String(err));
-    }
-  }
-
   // ── Backup scheduler — checks every minute if a backup is due ──────────────
   setInterval(() => {
     const userId = getSyncUserId();
@@ -866,4 +721,3 @@ app.on('before-quit', () => {
   for (const watcher of watchers.values()) watcher.close();
 });
 
-} // end else (non-squirrel startup)

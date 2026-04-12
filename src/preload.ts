@@ -51,6 +51,7 @@ export interface BackupConfig {
   scheduleTime: string;
   scheduleDayOfWeek: number;
   keepCount: number;
+  compress: boolean;
   lastRun: string | null;
   lastStatus: 'idle' | 'running' | 'success' | 'error';
   lastError: string | null;
@@ -89,6 +90,12 @@ export interface DriveSyncProgress {
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Perfil de usuário
+  setActiveProfile: (user: {
+    id: string; username: string; display_name: string; minio_bucket_name: string;
+  }): Promise<void> => ipcRenderer.invoke('profile:activate', user),
+  clearActiveProfile: (): Promise<void> => ipcRenderer.invoke('profile:deactivate'),
+
   // App info
   getVersion: (): Promise<string> => ipcRenderer.invoke('app:getVersion'),
   generateQR: (url: string): Promise<string> => ipcRenderer.invoke('qr:generate', url),

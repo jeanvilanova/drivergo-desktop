@@ -34,7 +34,7 @@ function newConfig(): BackupConfig {
     dbHost: 'localhost', dbPort: '', dbName: '', dbUser: '', dbPassword: '',
     dbFile: '', dbToolPath: '',
     schedule: 'daily', scheduleTime: '02:00', scheduleDayOfWeek: 1,
-    keepCount: 7,
+    keepCount: 7, compress: true,
     lastRun: null, lastStatus: 'idle', lastError: null,
   };
 }
@@ -116,7 +116,7 @@ function BackupCard({ cfg, onEdit, onDelete, onRunNow, running }: CardProps) {
             )}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            {formatSchedule(cfg)} · Reter {cfg.keepCount} backup{cfg.keepCount > 1 ? 's' : ''}
+            {formatSchedule(cfg)} · Reter {cfg.keepCount} backup{cfg.keepCount > 1 ? 's' : ''} · {(cfg.compress ?? true) ? '🗜️ Comprimido' : '📦 Sem compressão'}
           </div>
         </div>
 
@@ -406,6 +406,30 @@ function BackupModal({ draft, onChange, onSave, onClose, isNew }: ModalProps) {
             </div>
             <span style={{ fontSize: 11, color: 'var(--text-disabled)', marginTop: 4, display: 'block' }}>
               Arquivos mais antigos são removidos do disco após o envio para a nuvem
+            </span>
+          </div>
+
+          {/* Compression */}
+          <div style={{ ...sectionStyle, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={labelStyle}>COMPRESSÃO</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {([true, false] as const).map((val) => (
+                <button key={String(val)} onClick={() => onChange({ compress: val })} style={{
+                  flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                  fontFamily: 'inherit', fontSize: 12, fontWeight: (draft.compress ?? true) === val ? 700 : 400,
+                  border: `1px solid ${(draft.compress ?? true) === val ? 'var(--dg-blue)' : 'var(--border-dim)'}`,
+                  background: (draft.compress ?? true) === val ? 'rgba(92,174,255,.15)' : 'var(--surface-2)',
+                  color: (draft.compress ?? true) === val ? 'var(--dg-blue)' : 'var(--text-muted)',
+                  transition: 'all .15s',
+                }}>
+                  {val ? '🗜️ Compactar' : '📦 Sem compressão'}
+                </button>
+              ))}
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-disabled)' }}>
+              {(draft.compress ?? true)
+                ? 'Compressão LZMA2 ultra — arquivos menores, mais tempo de processamento'
+                : 'Armazena sem comprimir — mais rápido, arquivos maiores'}
             </span>
           </div>
 

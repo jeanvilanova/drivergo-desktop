@@ -4,6 +4,12 @@ import type { FolderStatus, SyncFolderInfo, DefaultFolder, LogEntry, BackupConfi
 declare global {
   interface Window {
     electronAPI: {
+      // Perfil de usuário
+      setActiveProfile: (user: {
+        id: string; username: string; display_name: string; minio_bucket_name: string;
+      }) => Promise<void>;
+      clearActiveProfile: () => Promise<void>;
+
       // App info
       getVersion: () => Promise<string>;
       generateQR: (url: string) => Promise<string>;

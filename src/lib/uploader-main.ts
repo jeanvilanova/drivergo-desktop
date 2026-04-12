@@ -260,7 +260,7 @@ export async function downloadFileToLocal(
       const fileStream = fs.createWriteStream(localPath);
       res.pipe(fileStream);
       fileStream.on('finish', () => { fileStream.close(); resolve(); });
-      fileStream.on('error', (err) => { fs.unlink(localPath, () => {}); reject(err); });
+      fileStream.on('error', (err) => { fs.unlink(localPath, () => undefined); reject(err); });
     });
 
     req.on('timeout', () => { req.destroy(); reject(new Error('Download expirou')); });
@@ -317,7 +317,7 @@ export async function downloadSharedFileToLocal(
       const fileStream = fs.createWriteStream(localPath);
       res.pipe(fileStream);
       fileStream.on('finish', () => { fileStream.close(); resolve(); });
-      fileStream.on('error', (err) => { fs.unlink(localPath, () => {}); reject(err); });
+      fileStream.on('error', (err) => { fs.unlink(localPath, () => undefined); reject(err); });
     });
 
     req.on('timeout', () => { req.destroy(); reject(new Error('Download expirou')); });

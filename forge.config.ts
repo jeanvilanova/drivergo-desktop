@@ -1,5 +1,5 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
-import { MakerSquirrel } from '@electron-forge/maker-squirrel';
+import { MakerWix } from '@electron-forge/maker-wix';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
@@ -22,10 +22,17 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({
+    new MakerWix({
       name: 'DriveGo',
-      setupExe: 'DriveGo-Setup.exe',
-      setupIcon: './assets/icon.ico',
+      manufacturer: 'SuporteGO',
+      description: 'Sincronização e backup em nuvem',
+      icon: './assets/icon.ico',
+      // Instala em C:\Program Files\DriveGo (requer elevação UAC)
+      programFilesFolderName: 'DriveGo',
+      shortcutFolderName: 'DriveGo',
+      ui: {
+        chooseDirectory: false,
+      },
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),

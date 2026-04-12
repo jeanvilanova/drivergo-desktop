@@ -63,18 +63,17 @@ async function compressWith7z(
   sources: string[],
   outFile: string,
   format: '7z' | 'zip' = '7z',
+  compress = true,
 ): Promise<void> {
   const sevenZa = get7zaPath();
-  // -mx=9   : ultra compression
-  // -mmt=on : multi-threaded
-  // -ms=on  : solid archive (better ratio when compressing many files)
-  // -mhe=on : encrypt header (7z only)
+  // compress=true  → -mx=9 ultra (LZMA2), multi-thread, solid
+  // compress=false → -mx=0 store mode (no compression, just archive)
   const args = [
     'a',
     `-t${format}`,
-    '-mx=9',
+    compress ? '-mx=9' : '-mx=0',
     '-mmt=on',
-    ...(format === '7z' ? ['-ms=on'] : []),
+    ...(compress && format === '7z' ? ['-ms=on'] : []),
     outFile,
     ...sources,
   ];
@@ -82,8 +81,8 @@ async function compressWith7z(
 }
 
 // ── File backup ───────────────────────────────────────────────────────────────
-async function compressFiles(sourceFolders: string[], outFile: string): Promise<void> {
-  await compressWith7z(sourceFolders, outFile, '7z');
+async function compressFiles(sourceFolders: string[], outFile: string, compress: boolean): Promise<void> {
+  await compressWith7z(sourceFolders, outFile, '7z', compress);
 }
 
 // ── Firebird ──────────────────────────────────────────────────────────────────
@@ -94,12 +93,11 @@ async function runFirebirdBackup(cfg: BackupConfig, outFile: string): Promise<st
     ? `${host}:${cfg.dbFile}`
     : `${host}/${cfg.dbPort || '3050'}:${cfg.dbName}`;
 
-  // Dump to temp .fbk then compress
   const tmpFile = outFile.replace(/\.7z$/, '.fbk');
   await execFileAsync(gbak, [
     '-backup', '-user', cfg.dbUser, '-password', cfg.dbPassword, source, tmpFile,
   ]);
-  await compressWith7z([tmpFile], outFile, '7z');
+  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
   fs.unlinkSync(tmpFile);
   return outFile;
 }
@@ -112,7 +110,7 @@ async function runSqlServerBackup(cfg: BackupConfig, outFile: string): Promise<s
   const query = `BACKUP DATABASE [${cfg.dbName}] TO DISK = N'${tmpFile.replace(/'/g, "''")}' WITH INIT, NO_COMPRESSION;`;
 
   await execFileAsync(sqlcmd, ['-S', server, '-U', cfg.dbUser, '-P', cfg.dbPassword, '-Q', query]);
-  await compressWith7z([tmpFile], outFile, '7z');
+  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
   fs.unlinkSync(tmpFile);
   return outFile;
 }
@@ -126,7 +124,7 @@ async function runPostgresBackup(cfg: BackupConfig, outFile: string): Promise<st
     ['-h', cfg.dbHost, '-p', cfg.dbPort || '5432', '-U', cfg.dbUser, '-F', 'p', '-f', tmpFile, cfg.dbName],
     { env: { ...process.env, PGPASSWORD: cfg.dbPassword } },
   );
-  await compressWith7z([tmpFile], outFile, '7z');
+  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
   fs.unlinkSync(tmpFile);
   return outFile;
 }
@@ -141,7 +139,7 @@ async function runDb2Backup(cfg: BackupConfig, outDir: string, outFile: string):
   if (files.length === 0) throw new Error('DB2 backup não gerou arquivo');
 
   const tmpFiles = files.map((f) => path.join(tmpDir, f));
-  await compressWith7z(tmpFiles, outFile, '7z');
+  await compressWith7z(tmpFiles, outFile, '7z', cfg.compress ?? true);
   for (const f of tmpFiles) fs.unlinkSync(f);
   fs.rmdirSync(tmpDir);
   return outFile;
@@ -153,7 +151,7 @@ async function runOracleBackup(cfg: BackupConfig, outFile: string): Promise<stri
   const connectStr = `${cfg.dbUser}/${cfg.dbPassword}@${cfg.dbHost}:${cfg.dbPort || '1521'}/${cfg.dbName}`;
   const tmpFile    = outFile.replace(/\.7z$/, '.dmp');
   await execFileAsync(exp, [`userid=${connectStr}`, `file=${tmpFile}`, 'full=y', 'compress=n']);
-  await compressWith7z([tmpFile], outFile, '7z');
+  await compressWith7z([tmpFile], outFile, '7z', cfg.compress ?? true);
   fs.unlinkSync(tmpFile);
   return outFile;
 }
@@ -171,8 +169,9 @@ export async function runBackup(cfg: BackupConfig, userId: string): Promise<void
 
     if (cfg.type === 'files') {
       if (cfg.sourceFolders.length === 0) throw new Error('Nenhuma pasta selecionada');
-      logInfo('backup', `Comprimindo ${cfg.sourceFolders.length} pasta(s) com 7-Zip ultra: ${cfg.name}`);
-      await compressFiles(cfg.sourceFolders, outFile);
+      const compressLabel = (cfg.compress ?? true) ? '7-Zip ultra' : 'store (sem compressão)';
+      logInfo('backup', `Arquivando ${cfg.sourceFolders.length} pasta(s) com ${compressLabel}: ${cfg.name}`);
+      await compressFiles(cfg.sourceFolders, outFile, cfg.compress ?? true);
 
     } else if (cfg.type === 'db2') {
       logInfo('backup', `Executando backup DB2 + compressão: ${cfg.name}`);
