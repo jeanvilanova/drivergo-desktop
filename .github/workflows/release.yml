@@ -24,15 +24,16 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Instalar WiX Toolset v3
-        run: choco install wixtoolset --version 3.14.0 -y
-        shell: powershell
-
-      # Recarrega o PATH para que candle.exe / light.exe sejam encontrados
-      - name: Adicionar WiX ao PATH
+      # Baixa os binários do WiX 3.14 diretamente do GitHub (sem Chocolatey)
+      - name: Instalar WiX Toolset v3.14
         run: |
-          $wixPath = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
-          echo "$wixPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $url = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
+          $zip = "$env:TEMP\wix314-binaries.zip"
+          $dir = "C:\wix314"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          echo "$dir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "WiX instalado em $dir"
         shell: powershell
 
       - name: Instalar dependências npm
