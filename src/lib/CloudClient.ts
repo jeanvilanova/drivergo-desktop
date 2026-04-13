@@ -1,6 +1,6 @@
-const BASE_URL = 'https://diawodjmnqiekpfhlcmb.supabase.co/functions/v1';
+const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
 const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpYXdvZGptbnFpZWtwZmhsY21iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0OTMzMzAsImV4cCI6MjA4ODA2OTMzMH0.7c7fdbHXMpdi1k_zjAXlrdA0r4RPbXNQuTIZhkVLIMU';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTkwNTcsImV4cCI6MjA5MDc5NTA1N30.cXfR1DaHRQ2XwsXppbTn7W1FYEnKtlZVkSh9sMN2ikk';
 
 export interface CloudUser {
   id: string;
