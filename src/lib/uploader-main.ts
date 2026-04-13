@@ -3,9 +3,9 @@ import path from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
 
-const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
+const BASE_URL = 'https://diawodjmnqiekpfhlcmb.supabase.co/functions/v1';
 const ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM3MTMzMjUsImV4cCI6MjA1OTI4OTMyNX0.bE7fVBcNNUFWBsDxW3-qDWVrCL2PBzw_4j3xhvt9AWI';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpYXdvZGptbnFpZWtwZmhsY21iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0OTMzMzAsImV4cCI6MjA4ODA2OTMzMH0.7c7fdbHXMpdi1k_zjAXlrdA0r4RPbXNQuTIZhkVLIMU';
 
 const MIME_MAP: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
