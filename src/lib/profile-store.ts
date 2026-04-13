@@ -23,16 +23,27 @@ export function getProfileConfigPath(filename: string): string {
 }
 
 /**
+ * Sanitizes a user ID so it is safe to use as a directory name.
+ * Removes any path separator characters to prevent path traversal attacks.
+ */
+function sanitizeId(id: string): string {
+  // Remove path separators and null bytes; collapse to alphanumeric + dash + underscore
+  return id.replace(/[/\\:*?"<>|\0]/g, '_').slice(0, 128);
+}
+
+/**
  * Ativa o perfil do usuário: cria o diretório de perfil se necessário,
  * grava o arquivo profile.json e define o caminho ativo.
  */
 export async function activateProfile(user: ProfileUser): Promise<void> {
-  const profileDir = path.join(app.getPath('userData'), 'profiles', user.id);
+  const safeId = sanitizeId(user.id);
+  if (!safeId) throw new Error('ID de usuário inválido');
+  const profileDir = path.join(app.getPath('userData'), 'profiles', safeId);
   await fs.promises.mkdir(profileDir, { recursive: true });
   await fs.promises.writeFile(
     path.join(profileDir, 'profile.json'),
     JSON.stringify({
-      id: user.id,
+      id: user.id,       // original (unsanitized) stored inside the JSON only
       username: user.username,
       display_name: user.display_name,
       loginAt: new Date().toISOString(),
