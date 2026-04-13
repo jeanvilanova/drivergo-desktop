@@ -729,6 +729,23 @@ ipcMain.handle('backup:runNow', async (_e, id: string) => {
   await runBackup(cfg, userId);
 });
 
+// ─── Single instance lock ────────────────────────────────────────────────────
+// Garante que apenas uma instância do app rode por vez.
+// Se o usuário tentar abrir um segundo executável, a janela existente é
+// trazida ao foco e a nova instância é encerrada imediatamente.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.on('ready', () => {
   // Registrar para iniciar automaticamente com o Windows (minimizado)
