@@ -413,9 +413,14 @@ export async function generateShareLink(
     throw new Error(`Falha ao gerar link: ${msg}`);
   }
   const json = await res.json();
-  // If edge function returned a relative URL (/share/token), make it absolute
+  // shareUrl comes as "https://drivego.app.br/share/TOKEN"
+  // Convert to "https://drivego.app.br/share.html?token=TOKEN" for static hosting
   const url: string = json.shareUrl ?? '';
-  if (url.startsWith('/')) return `https://drivego.app.br${url}`;
+  const shareMatch = url.match(/\/share\/([^/?#]+)/);
+  if (shareMatch) {
+    return `https://drivego.app.br/share.html?token=${shareMatch[1]}`;
+  }
+  if (url.startsWith('/')) return `https://drivego.app.br/share.html?token=${url.split('/share/')[1] ?? ''}`;
   return url;
 }
 
