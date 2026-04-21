@@ -66,6 +66,18 @@ async function compressWith7z(
   compress = true,
 ): Promise<void> {
   const sevenZa = get7zaPath();
+
+  // Validate binary exists before attempting to run
+  if (!fs.existsSync(sevenZa)) {
+    throw new Error(`7za.exe não encontrado em: ${sevenZa}`);
+  }
+
+  // Validate sources exist
+  const missing = sources.filter((s) => !fs.existsSync(s));
+  if (missing.length > 0) {
+    throw new Error(`Pasta(s) de origem não encontrada(s): ${missing.join(', ')}`);
+  }
+
   // compress=true  → -mx=9 ultra (LZMA2), multi-thread, solid
   // compress=false → -mx=0 store mode (no compression, just archive)
   const args = [
@@ -77,7 +89,14 @@ async function compressWith7z(
     outFile,
     ...sources,
   ];
-  await execFileAsync(sevenZa, args, { maxBuffer: 1024 * 1024 * 10 });
+
+  try {
+    await execFileAsync(sevenZa, args, { maxBuffer: 1024 * 1024 * 50 });
+  } catch (err: any) {
+    // Attach stderr/stdout to make the root cause visible in the activity log
+    const detail = err.stderr || err.stdout || '';
+    throw new Error(`7za falhou: ${detail || err.message}`);
+  }
 }
 
 // ── File backup ───────────────────────────────────────────────────────────────
@@ -182,7 +201,8 @@ export async function runBackup(cfg: BackupConfig, userId: string): Promise<void
     if (cfg.type === 'files') {
       if (cfg.sourceFolders.length === 0) throw new Error('Nenhuma pasta selecionada');
       const compressLabel = (cfg.compress ?? true) ? '7-Zip ultra' : 'store (sem compressão)';
-      logInfo('backup', `Arquivando ${cfg.sourceFolders.length} pasta(s) com ${compressLabel}: ${cfg.name}`);
+      logInfo('backup', `Arquivando ${cfg.sourceFolders.length} pasta(s) com ${compressLabel}: ${cfg.name}`, cfg.sourceFolders.join(' | '));
+      logInfo('backup', `7za path: ${get7zaPath()}`);
       await compressFiles(cfg.sourceFolders, outFile, cfg.compress ?? true);
 
     } else if (cfg.type === 'db2') {
