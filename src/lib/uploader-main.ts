@@ -413,13 +413,12 @@ export async function generateShareLink(
     throw new Error(`Falha ao gerar link: ${msg}`);
   }
   const json = await res.json();
-  // shareUrl comes as "https://drivego.app.br/share/TOKEN"
-  // Convert to "https://drivego.app.br/share.html?token=TOKEN" for static hosting
+  // Edge function now returns share.html?token=TOKEN directly.
+  // Keep the fallback transform for any cached/old-format URLs.
   const url: string = json.shareUrl ?? '';
+  if (url.includes('/share.html')) return url; // already correct format
   const shareMatch = url.match(/\/share\/([^/?#]+)/);
-  if (shareMatch) {
-    return `https://drivego.app.br/share.html?token=${shareMatch[1]}`;
-  }
+  if (shareMatch) return `https://drivego.app.br/share.html?token=${shareMatch[1]}`;
   if (url.startsWith('/')) return `https://drivego.app.br/share.html?token=${url.split('/share/')[1] ?? ''}`;
   return url;
 }
