@@ -62,6 +62,7 @@ export async function trashFile(userId: string, filePath: string): Promise<void>
 }
 
 export interface TrashedFile {
+  id: string;
   name: string;
   fullPath: string;
   originalPath: string;
@@ -75,12 +76,14 @@ export async function listTrashedFiles(userId: string): Promise<TrashedFile[]> {
   return data.files;
 }
 
-export async function restoreFile(userId: string, filePath: string): Promise<void> {
-  await call('restore-file', { userId, filePath });
+// restore-file espera trashId (id do registro na tabela trashed_files)
+export async function restoreFile(userId: string, trashId: string): Promise<void> {
+  await call('restore-file', { userId, trashId });
 }
 
-export async function permanentDeleteFile(userId: string, filePath: string): Promise<void> {
-  await call('permanent-delete', { userId, filePath });
+// permanent-delete espera trashId
+export async function permanentDeleteFile(userId: string, trashId: string): Promise<void> {
+  await call('permanent-delete', { userId, trashId });
 }
 
 export async function emptyTrash(userId: string): Promise<void> {
@@ -91,12 +94,13 @@ export async function createFolder(userId: string, folderPath: string): Promise<
   await call('create-folder', { userId, folderPath });
 }
 
+// rename usa move-file do backend (suporta sourcePath + newPath)
 export async function renameFile(
   userId: string,
   oldPath: string,
   newPath: string,
 ): Promise<void> {
-  await call('rename-file', { userId, oldPath, newPath });
+  await call('move-file', { userId, sourcePath: oldPath, newPath });
 }
 
 export async function getStorageUsage(userId: string): Promise<StorageUsage> {

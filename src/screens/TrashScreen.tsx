@@ -41,11 +41,11 @@ export default function TrashScreen({ user }: Props) {
 
   useEffect(() => { fetchTrash(); }, [fetchTrash]);
 
-  function toggleSelect(path: string) {
+  function toggleSelect(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -54,60 +54,60 @@ export default function TrashScreen({ user }: Props) {
     if (selected.size === files.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(files.map((f) => f.fullPath)));
+      setSelected(new Set(files.map((f) => f.id)));
     }
   }
 
   async function handleRestore(file: TrashedFile) {
-    setBusyPaths((p) => new Set(p).add(file.fullPath));
+    setBusyPaths((p) => new Set(p).add(file.id));
     try {
-      await restoreFile(user.id, file.fullPath);
-      setFiles((prev) => prev.filter((f) => f.fullPath !== file.fullPath));
-      setSelected((prev) => { const n = new Set(prev); n.delete(file.fullPath); return n; });
+      await restoreFile(user.id, file.id);
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+      setSelected((prev) => { const n = new Set(prev); n.delete(file.id); return n; });
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Erro ao restaurar');
     } finally {
-      setBusyPaths((p) => { const n = new Set(p); n.delete(file.fullPath); return n; });
+      setBusyPaths((p) => { const n = new Set(p); n.delete(file.id); return n; });
     }
   }
 
   async function handlePermanentDelete(file: TrashedFile) {
     const name = file.name.split('/').filter(Boolean).pop() || file.name;
     if (!confirm(`Excluir permanentemente "${name}"?\n\nEsta ação não pode ser desfeita.`)) return;
-    setBusyPaths((p) => new Set(p).add(file.fullPath));
+    setBusyPaths((p) => new Set(p).add(file.id));
     try {
-      await permanentDeleteFile(user.id, file.fullPath);
-      setFiles((prev) => prev.filter((f) => f.fullPath !== file.fullPath));
-      setSelected((prev) => { const n = new Set(prev); n.delete(file.fullPath); return n; });
+      await permanentDeleteFile(user.id, file.id);
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+      setSelected((prev) => { const n = new Set(prev); n.delete(file.id); return n; });
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Erro ao excluir');
     } finally {
-      setBusyPaths((p) => { const n = new Set(p); n.delete(file.fullPath); return n; });
+      setBusyPaths((p) => { const n = new Set(p); n.delete(file.id); return n; });
     }
   }
 
   async function handleRestoreSelected() {
-    for (const path of selected) {
-      const file = files.find((f) => f.fullPath === path);
+    for (const id of selected) {
+      const file = files.find((f) => f.id === id);
       if (file) await handleRestore(file);
     }
   }
 
   async function handleDeleteSelected() {
     if (!confirm(`Excluir permanentemente ${selected.size} item(ns)?\n\nEsta ação não pode ser desfeita.`)) return;
-    const paths = [...selected];
-    for (const path of paths) {
-      const file = files.find((f) => f.fullPath === path);
+    const ids = [...selected];
+    for (const id of ids) {
+      const file = files.find((f) => f.id === id);
       if (!file) continue;
-      setBusyPaths((p) => new Set(p).add(path));
+      setBusyPaths((p) => new Set(p).add(id));
       try {
-        await permanentDeleteFile(user.id, path);
-        setFiles((prev) => prev.filter((f) => f.fullPath !== path));
-        setSelected((prev) => { const n = new Set(prev); n.delete(path); return n; });
+        await permanentDeleteFile(user.id, id);
+        setFiles((prev) => prev.filter((f) => f.id !== id));
+        setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       } catch (e: unknown) {
         setActionError(e instanceof Error ? e.message : 'Erro ao excluir');
       } finally {
-        setBusyPaths((p) => { const n = new Set(p); n.delete(path); return n; });
+        setBusyPaths((p) => { const n = new Set(p); n.delete(id); return n; });
       }
     }
   }
@@ -217,20 +217,20 @@ export default function TrashScreen({ user }: Props) {
           <div className="files-area">
             {files.map((file) => {
               const displayName = file.name.split('/').filter(Boolean).pop() || file.name;
-              const isBusy = busyPaths.has(file.fullPath);
-              const isChecked = selected.has(file.fullPath);
+              const isBusy = busyPaths.has(file.id);
+              const isChecked = selected.has(file.id);
 
               return (
                 <div
                   key={file.fullPath}
                   className="file-card"
                   style={{ opacity: isBusy ? 0.5 : 1, cursor: 'default' }}
-                  onClick={() => toggleSelect(file.fullPath)}
+                  onClick={() => toggleSelect(file.id)}
                 >
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => toggleSelect(file.fullPath)}
+                    onChange={() => toggleSelect(file.id)}
                     onClick={(e) => e.stopPropagation()}
                     style={{ accentColor: 'var(--accent)', width: 15, height: 15, cursor: 'pointer', flexShrink: 0 }}
                   />
