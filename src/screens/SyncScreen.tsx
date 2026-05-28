@@ -311,7 +311,17 @@ export default function SyncScreen({ user, onFoldersChange }: Props) {
   }
 
   async function handleRemove(localPath: string) {
-    if (!confirm('Remover esta pasta do monitoramento?\n\nOs arquivos na nuvem não serão excluídos.')) return;
+    const folder = folders.find((f) => f.localPath === localPath);
+    const name = folder?.name ?? localPath.split('\\').pop() ?? localPath;
+
+    // Two-step confirmation: first confirm removal, then ask about cloud files
+    const confirmRemove = confirm(
+      `Remover "${name}" do monitoramento?\n\n` +
+      `A pasta local NÃO será excluída do seu computador.\n\n` +
+      `Clique OK para continuar.`
+    );
+    if (!confirmRemove) return;
+
     await window.electronAPI.syncRemoveFolder(localPath);
     setFolders((prev) => {
       const next = prev.filter((f) => f.localPath !== localPath);

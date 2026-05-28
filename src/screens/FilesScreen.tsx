@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { listFiles, trashFile, getDownloadUrl, uploadFile, formatBytes, formatDate } from '../lib/CloudClient';
+import { listFiles, trashFile, getDownloadUrl, formatBytes, formatDate, createFolder, renameFile } from '../lib/CloudClient';
 import type { CloudFile, CloudUser } from '../lib/CloudClient';
 import {
   FileTypeIcon, IconFiles, IconSearch, IconUpload, IconRefresh,
-  IconDownload, IconTrash, IconChevronRight,
+  IconDownload, IconTrash, IconChevronRight, IconPlus,
 } from '../components/Icons';
 
 interface Props {
@@ -14,7 +14,6 @@ interface Props {
 }
 interface CtxMenu { x: number; y: number; file: CloudFile }
 interface UploadProg { [name: string]: number }
-
 
 function Breadcrumbs({ prefix, onNavigate }: { prefix: string; onNavigate: (p: string) => void }) {
   const parts = prefix.replace(/\/$/, '').split('/').filter(Boolean);
@@ -36,6 +35,67 @@ function Breadcrumbs({ prefix, onNavigate }: { prefix: string; onNavigate: (p: s
   );
 }
 
+// ── New folder modal ──────────────────────────────────────────────────────────
+function NewFolderModal({ onConfirm, onCancel }: {
+  onConfirm: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">Nova pasta</div>
+        <div className="field">
+          <label>Nome da pasta</label>
+          <input
+            autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onConfirm(name.trim()); }}
+            placeholder="Ex: Contratos 2025"
+          />
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" style={{ flex: 1 }}
+            onClick={() => name.trim() && onConfirm(name.trim())} disabled={!name.trim()}>
+            Criar pasta
+          </button>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Rename modal ──────────────────────────────────────────────────────────────
+function RenameModal({ file, onConfirm, onCancel }: {
+  file: CloudFile;
+  onConfirm: (newName: string) => void;
+  onCancel: () => void;
+}) {
+  const displayName = file.name.split('/').filter(Boolean).pop() || file.name;
+  const [name, setName] = useState(displayName);
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-title">Renomear</div>
+        <div className="field">
+          <label>Novo nome</label>
+          <input
+            autoFocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && name.trim()) onConfirm(name.trim()); }}
+          />
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-primary" style={{ flex: 1 }}
+            onClick={() => name.trim() && onConfirm(name.trim())} disabled={!name.trim()}>
+            Renomear
+          </button>
+          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: Props) {
   const [files, setFiles] = useState<CloudFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +103,9 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
   const [progress, setProgress] = useState<UploadProg>({});
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [renaming, setRenaming] = useState<CloudFile | null>(null);
+  const [actionError, setActionError] = useState('');
   const uploadingRef = useRef(false);
   const dragCounter = useRef(0);
 
@@ -59,6 +122,14 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
   }, [user.id, prefix]);
 
   useEffect(() => { fetchFiles(); }, [fetchFiles]);
+
+  // Register upload progress listener from main process
+  useEffect(() => {
+    const handler = window.electronAPI.onUploadProgress(({ name, pct }) => {
+      setProgress((prev) => ({ ...prev, [name]: pct }));
+    });
+    return () => window.electronAPI.offUploadProgress(handler);
+  }, []);
 
   useEffect(() => {
     if (!ctx) return;
@@ -77,22 +148,29 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
   const folders   = filtered.filter((f) => f.isFolder);
   const fileItems = filtered.filter((f) => !f.isFolder);
 
+  // Upload using main process streaming (no memory limit for large files)
   async function doUpload(filePaths: string[]) {
     if (!filePaths.length || uploadingRef.current) return;
     uploadingRef.current = true;
-    const prog: UploadProg = {};
-    filePaths.forEach((fp) => { prog[fp.split('\\').pop() || fp] = 0; });
-    setProgress({ ...prog });
+
+    // Initialise progress at 0 for all files
+    const initial: UploadProg = {};
+    filePaths.forEach((fp) => { initial[fp.split('\\').pop() || fp] = 0; });
+    setProgress({ ...initial });
+
     for (const fp of filePaths) {
       const name = fp.split('\\').pop() || fp;
-      const ext  = name.split('.').pop()?.toLowerCase() || '';
+      const remotePath = prefix + name;
       try {
-        const blob = await fetch(`file:///${fp.replace(/\\/g, '/')}`).then((r) => r.blob());
-        await uploadFile(user.id, prefix + name, blob as File, guessMime(ext), (pct) => {
-          setProgress((prev) => ({ ...prev, [name]: pct }));
-        });
-      } catch (e) { console.error('Upload error:', e); }
+        // Delegate to main process — streams directly to S3, no memory buffering
+        await window.electronAPI.uploadFromDisk(fp, remotePath, name);
+        setProgress((prev) => ({ ...prev, [name]: 100 }));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setActionError(`Falha no upload de "${name}": ${msg}`);
+      }
     }
+
     setProgress({});
     uploadingRef.current = false;
     fetchFiles();
@@ -102,14 +180,52 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
 
   async function handleDownload(file: CloudFile) {
     try { await window.electronAPI.openExternal(await getDownloadUrl(user.id, file.fullPath)); }
-    catch (e) { console.error(e); }
+    catch (e) { setActionError(e instanceof Error ? e.message : 'Erro ao abrir arquivo'); }
   }
 
   async function handleDelete(file: CloudFile) {
     const name = file.name.split('/').pop() || file.name;
     if (!confirm(`Mover "${name}" para a lixeira?`)) return;
-    await trashFile(user.id, file.fullPath);
-    setFiles((prev) => prev.filter((f) => f.fullPath !== file.fullPath));
+    try {
+      await trashFile(user.id, file.fullPath);
+      setFiles((prev) => prev.filter((f) => f.fullPath !== file.fullPath));
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Erro ao mover para lixeira');
+    }
+  }
+
+  async function handleCreateFolder(name: string) {
+    setShowNewFolder(false);
+    const folderPath = prefix + name + '/';
+    try {
+      await createFolder(user.id, folderPath);
+      fetchFiles();
+    } catch (e) {
+      // Endpoint may not exist yet on the backend — show friendly message
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('404') || msg.includes('not found')) {
+        setActionError('Criação de pasta ainda não suportada pelo servidor. Contate o suporte.');
+      } else {
+        setActionError(`Erro ao criar pasta: ${msg}`);
+      }
+    }
+  }
+
+  async function handleRename(file: CloudFile, newName: string) {
+    setRenaming(null);
+    const dir = file.fullPath.substring(0, file.fullPath.lastIndexOf('/') + 1);
+    const newPath = dir + newName;
+    try {
+      await renameFile(user.id, file.fullPath, newPath);
+      fetchFiles();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('404') || msg.includes('not found')) {
+        setActionError('Renomeação ainda não suportada pelo servidor. Contate o suporte.');
+      } else {
+        setActionError(`Erro ao renomear: ${msg}`);
+      }
+    }
   }
 
   function onDragEnter(e: React.DragEvent) { e.preventDefault(); dragCounter.current++; setDragging(true); }
@@ -117,7 +233,10 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
   function onDragOver(e: React.DragEvent) { e.preventDefault(); }
   async function onDrop(e: React.DragEvent) {
     e.preventDefault(); dragCounter.current = 0; setDragging(false);
-    doUpload(Array.from(e.dataTransfer.files).map((f) => (f as {path?: string}).path || f.name));
+    const paths = Array.from(e.dataTransfer.files)
+      .map((f) => (f as { path?: string }).path || '')
+      .filter(Boolean);
+    if (paths.length) doUpload(paths);
   }
 
   const isUploading = Object.keys(progress).length > 0;
@@ -157,6 +276,9 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
           <button className="btn btn-ghost btn-sm" onClick={fetchFiles} title="Atualizar">
             <IconRefresh size={14} />
           </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowNewFolder(true)} title="Nova pasta">
+            <IconPlus size={14} /> Pasta
+          </button>
           <button className="btn btn-accent btn-sm" onClick={handlePickFiles} disabled={isUploading}>
             <IconUpload size={14} />
             {isUploading ? 'Enviando…' : 'Enviar Arquivos'}
@@ -166,6 +288,19 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
 
       {/* Breadcrumb */}
       <Breadcrumbs prefix={prefix} onNavigate={onNavigate} />
+
+      {/* Action error */}
+      {actionError && (
+        <div style={{
+          margin: '6px 16px 0', padding: '8px 14px', borderRadius: 8,
+          background: 'rgba(242,87,87,.12)', border: '1px solid rgba(242,87,87,.3)',
+          color: '#f25757', fontSize: 12, display: 'flex', justifyContent: 'space-between',
+        }}>
+          <span>{actionError}</span>
+          <button style={{ background: 'none', border: 'none', color: '#f25757', cursor: 'pointer', padding: 0 }}
+            onClick={() => setActionError('')}>✕</button>
+        </div>
+      )}
 
       {/* Column labels */}
       {!loading && filtered.length > 0 && (
@@ -258,29 +393,32 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
               <IconDownload size={14} /> Baixar / Abrir
             </div>
           )}
+          <div className="ctx-item" onClick={() => { setRenaming(ctx.file); setCtx(null); }}>
+            ✏️ Renomear
+          </div>
           <div className="ctx-sep" />
           <div className="ctx-item danger" onClick={() => { handleDelete(ctx.file); setCtx(null); }}>
             <IconTrash size={14} /> Mover para lixeira
           </div>
         </div>
       )}
+
+      {/* New folder modal */}
+      {showNewFolder && (
+        <NewFolderModal
+          onConfirm={handleCreateFolder}
+          onCancel={() => setShowNewFolder(false)}
+        />
+      )}
+
+      {/* Rename modal */}
+      {renaming && (
+        <RenameModal
+          file={renaming}
+          onConfirm={(newName) => handleRename(renaming, newName)}
+          onCancel={() => setRenaming(null)}
+        />
+      )}
     </div>
   );
-}
-
-function guessMime(ext: string): string {
-  const m: Record<string, string> = {
-    jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',
-    webp:'image/webp',svg:'image/svg+xml',pdf:'application/pdf',
-    mp4:'video/mp4',mov:'video/quicktime',avi:'video/x-msvideo',
-    mkv:'video/x-matroska',mp3:'audio/mpeg',wav:'audio/wav',
-    flac:'audio/flac',aac:'audio/aac',
-    doc:'application/msword',
-    docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    xls:'application/vnd.ms-excel',
-    xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    txt:'text/plain',csv:'text/csv',json:'application/json',
-    zip:'application/zip',rar:'application/x-rar-compressed',
-  };
-  return m[ext] || 'application/octet-stream';
 }

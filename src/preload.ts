@@ -153,6 +153,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeListener('app:status', handler);
   },
 
+  // File operations (large file upload via main process streaming)
+  uploadFromDisk: (localPath: string, remotePath: string, name: string): Promise<void> =>
+    ipcRenderer.invoke('files:uploadFromDisk', localPath, remotePath, name),
+  onUploadProgress: (cb: (info: { name: string; pct: number }) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, info: { name: string; pct: number }) => cb(info);
+    ipcRenderer.on('upload:progress', handler);
+    return handler;
+  },
+  offUploadProgress: (handler: (e: Electron.IpcRendererEvent, info: { name: string; pct: number }) => void) => {
+    ipcRenderer.removeListener('upload:progress', handler);
+  },
+  createFolder: (folderPath: string): Promise<void> =>
+    ipcRenderer.invoke('files:createFolder', folderPath),
+  renameFile: (oldPath: string, newPath: string): Promise<void> =>
+    ipcRenderer.invoke('files:renameFile', oldPath, newPath),
+
   // Unidade mapeada
   driveGetConfig: (): Promise<{ letter: string; enabled: boolean }> => ipcRenderer.invoke('drive:getConfig'),
   driveSetConfig: (cfg: { letter: string; enabled: boolean }): Promise<void> => ipcRenderer.invoke('drive:setConfig', cfg),

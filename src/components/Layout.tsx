@@ -1,10 +1,10 @@
 import React, { type ReactNode } from 'react';
 import { clearSession } from '../lib/session';
 import type { CloudUser } from '../lib/CloudClient';
-import { IconFiles, IconSync, IconStorage, IconLogout, IconActivity, IconBackup, IconInfo, IconDrive } from './Icons';
+import { IconFiles, IconSync, IconStorage, IconLogout, IconActivity, IconBackup, IconInfo, IconDrive, IconTrash } from './Icons';
 import type { SyncFolderInfo } from '../preload';
 
-type NavView = 'files' | 'sync' | 'storage' | 'drive' | 'backup' | 'log' | 'about';
+type NavView = 'files' | 'sync' | 'storage' | 'drive' | 'backup' | 'log' | 'about' | 'trash';
 
 interface Props {
   user: CloudUser;
@@ -23,6 +23,7 @@ const NAV_ITEMS: { id: NavView; label: string; icon: (s: number) => React.ReactN
   { id: 'storage', label: 'Armazenamento',  icon: (s) => <IconStorage size={s} /> },
   { id: 'drive',   label: 'Unidade',        icon: (s) => <IconDrive size={s} /> },
   { id: 'backup',  label: 'Backup',         icon: (s) => <IconBackup size={s} /> },
+  { id: 'trash',   label: 'Lixeira',        icon: (s) => <IconTrash size={s} /> },
   { id: 'log',     label: 'Atividade',      icon: (s) => <IconActivity size={s} /> },
   { id: 'about',   label: 'Sobre',          icon: (s) => <IconInfo size={s} /> },
 ];

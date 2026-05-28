@@ -19,6 +19,13 @@ declare global {
       openExternal: (url: string) => Promise<void>;
       savePath: (defaultName: string) => Promise<string | null>;
 
+      // Large-file upload via main process (streaming — no memory limit)
+      uploadFromDisk: (localPath: string, remotePath: string, name: string) => Promise<void>;
+      onUploadProgress: (cb: (info: { name: string; pct: number }) => void) => (e: Electron.IpcRendererEvent, info: { name: string; pct: number }) => void;
+      offUploadProgress: (handler: (e: Electron.IpcRendererEvent, info: { name: string; pct: number }) => void) => void;
+      createFolder: (folderPath: string) => Promise<void>;
+      renameFile: (oldPath: string, newPath: string) => Promise<void>;
+
       // Sync
       syncSetUser: (userId: string) => Promise<void>;
       syncGetFolders: () => Promise<SyncFolderInfo[]>;

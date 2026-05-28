@@ -61,6 +61,44 @@ export async function trashFile(userId: string, filePath: string): Promise<void>
   await call('trash-file', { userId, filePath });
 }
 
+export interface TrashedFile {
+  name: string;
+  fullPath: string;
+  originalPath: string;
+  size: number;
+  deletedAt: string;
+  isFolder: boolean;
+}
+
+export async function listTrashedFiles(userId: string): Promise<TrashedFile[]> {
+  const data = await call<{ files: TrashedFile[] }>('list-trash', { userId });
+  return data.files;
+}
+
+export async function restoreFile(userId: string, filePath: string): Promise<void> {
+  await call('restore-file', { userId, filePath });
+}
+
+export async function permanentDeleteFile(userId: string, filePath: string): Promise<void> {
+  await call('permanent-delete', { userId, filePath });
+}
+
+export async function emptyTrash(userId: string): Promise<void> {
+  await call('empty-trash', { userId });
+}
+
+export async function createFolder(userId: string, folderPath: string): Promise<void> {
+  await call('create-folder', { userId, folderPath });
+}
+
+export async function renameFile(
+  userId: string,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
+  await call('rename-file', { userId, oldPath, newPath });
+}
+
 export async function getStorageUsage(userId: string): Promise<StorageUsage> {
   return call<StorageUsage>('storage-usage', { userId });
 }

@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { getStorageUsage, formatBytes } from '../lib/CloudClient';
 import type { StorageUsage, CloudUser } from '../lib/CloudClient';
-import { IconStorage } from '../components/Icons';
+import { IconStorage, IconRefresh } from '../components/Icons';
 
 interface Props { user: CloudUser }
+
+const POLL_INTERVAL_MS = 30_000;
 
 function DonutRing({ pct, size = 140 }: { pct: number; size?: number }) {
   const r = (size / 2) - 12;
@@ -28,14 +30,34 @@ function DonutRing({ pct, size = 140 }: { pct: number; size?: number }) {
 export default function StorageScreen({ user }: Props) {
   const [usage, setUsage] = useState<StorageUsage | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
-    getStorageUsage(user.id)
-      .then(setUsage)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Erro'))
-      .finally(() => setLoading(false));
+  const fetchUsage = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setRefreshing(true);
+    setError('');
+    try {
+      const data = await getStorageUsage(user.id);
+      setUsage(data);
+      setLastUpdated(new Date());
+    } catch (e: unknown) {
+      if (!silent) setError(e instanceof Error ? e.message : 'Erro');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [user.id]);
+
+  // Initial load
+  useEffect(() => { fetchUsage(); }, [fetchUsage]);
+
+  // Auto-refresh every 30 s (picks up changes from file deletions / uploads)
+  useEffect(() => {
+    const id = setInterval(() => fetchUsage(true), POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [fetchUsage]);
 
   if (loading) return <div className="empty-state"><div className="spinner" /></div>;
   if (error) return (
@@ -47,6 +69,9 @@ export default function StorageScreen({ user }: Props) {
           ? 'Armazenamento ainda não configurado para esta conta. Entre em contato com o suporte.'
           : error}
       </div>
+      <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => fetchUsage()}>
+        <IconRefresh size={14} /> Tentar novamente
+      </button>
     </div>
   );
   if (!usage) return null;
@@ -69,7 +94,27 @@ export default function StorageScreen({ user }: Props) {
           <div className="hero-title">Armazenamento</div>
           <div className="hero-sub">Consumo de espaço em nuvem · {user.display_name || user.username}</div>
         </div>
+        <div className="hero-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => fetchUsage(true)}
+            disabled={refreshing}
+            title="Atualizar agora"
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span style={{ display: 'inline-flex', animation: refreshing ? 'spin .8s linear infinite' : 'none' }}>
+              <IconRefresh size={14} />
+            </span>
+            {refreshing ? 'Atualizando…' : 'Atualizar'}
+          </button>
+        </div>
       </div>
+
+      {lastUpdated && (
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', padding: '0 20px 4px', textAlign: 'right' }}>
+          Atualizado em {lastUpdated.toLocaleTimeString('pt-BR')} · atualiza automaticamente a cada 30s
+        </div>
+      )}
 
       <div className="storage-layout">
 

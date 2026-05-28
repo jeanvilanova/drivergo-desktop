@@ -705,6 +705,64 @@ ipcMain.handle('drive:openFolder', (_e, subfolder: 'mine' | 'shared') => {
   shell.openPath(target);
 });
 
+// ─── File operations IPC (large file upload via streaming, folder creation, rename) ────
+ipcMain.handle('files:uploadFromDisk', async (event, localPath: string, remotePath: string, name: string) => {
+  const userId = getSyncUserId();
+  if (!userId) throw new Error('Usuário não autenticado');
+
+  await uploadFileFromDisk(userId, localPath, remotePath, (pct) => {
+    event.sender.send('upload:progress', { name, pct });
+  });
+});
+
+// Fetch presigned URL for renderer-side direct upload (fallback for drag-drop blobs)
+ipcMain.handle('files:getUploadUrl', async (_e, remotePath: string, contentType: string) => {
+  const userId = getSyncUserId();
+  if (!userId) throw new Error('Usuário não autenticado');
+  const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
+  const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTkwNTcsImV4cCI6MjA5MDc5NTA1N30.cXfR1DaHRQ2XwsXppbTn7W1FYEnKtlZVkSh9sMN2ikk';
+  const res = await fetch(`${BASE_URL}/get-upload-url`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, filePath: remotePath, contentType }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const { url } = await res.json();
+  return url as string;
+});
+
+ipcMain.handle('files:createFolder', async (_e, folderPath: string) => {
+  const userId = getSyncUserId();
+  if (!userId) throw new Error('Usuário não autenticado');
+  const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
+  const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTkwNTcsImV4cCI6MjA5MDc5NTA1N30.cXfR1DaHRQ2XwsXppbTn7W1FYEnKtlZVkSh9sMN2ikk';
+  const res = await fetch(`${BASE_URL}/create-folder`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, folderPath }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error((j as { error?: string }).error || `HTTP ${res.status}`);
+  }
+});
+
+ipcMain.handle('files:renameFile', async (_e, oldPath: string, newPath: string) => {
+  const userId = getSyncUserId();
+  if (!userId) throw new Error('Usuário não autenticado');
+  const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
+  const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTkwNTcsImV4cCI6MjA5MDc5NTA1N30.cXfR1DaHRQ2XwsXppbTn7W1FYEnKtlZVkSh9sMN2ikk';
+  const res = await fetch(`${BASE_URL}/rename-file`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, oldPath, newPath }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error((j as { error?: string }).error || `HTTP ${res.status}`);
+  }
+});
+
 // ─── Backup IPC ───────────────────────────────────────────────────────────────
 ipcMain.handle('backup:getConfigs', () => getBackupConfigs());
 

@@ -11,6 +11,7 @@ import LogScreen from './screens/LogScreen';
 import BackupScreen from './screens/BackupScreen';
 import DriveScreen from './screens/DriveScreen';
 import AboutScreen from './screens/AboutScreen';
+import TrashScreen from './screens/TrashScreen';
 import type { SyncFolderInfo, LogEntry } from './preload';
 import './index.css';
 
@@ -41,7 +42,7 @@ class ErrorBoundary extends Component<{ children: ReactNode; onReset: () => void
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────
-type NavView = 'files' | 'sync' | 'storage' | 'drive' | 'backup' | 'log' | 'about';
+type NavView = 'files' | 'sync' | 'storage' | 'drive' | 'backup' | 'log' | 'about' | 'trash';
 
 // ── Startup splash ────────────────────────────────────────────────────────────
 function StartupSplash({ status, version }: { status: string; version: string }) {
@@ -191,6 +192,7 @@ function App() {
         )}
         {view === 'drive' && <DriveScreen />}
         {view === 'backup' && <BackupScreen />}
+        {view === 'trash' && <TrashScreen user={user} />}
         {view === 'log' && <LogScreen />}
         {view === 'about' && <AboutScreen />}
       </ErrorBoundary>
