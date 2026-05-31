@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage, Notification } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
@@ -34,6 +34,58 @@ import {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
+
+// ── Sync visual state — tracks active uploads across all folders ─────────────
+let activeSyncCount = 0;   // number of folders currently syncing
+let syncErrorCount  = 0;   // folders with errors this session
+
+function syncStateChanged() {
+  if (!mainWindow) return;
+
+  if (activeSyncCount > 0) {
+    // Blue animated progress bar while syncing
+    mainWindow.setProgressBar(0.5, { mode: 'indeterminate' });
+    tray?.setToolTip(`DriveGO — Sincronizando ${activeSyncCount} pasta${activeSyncCount > 1 ? 's' : ''}…`);
+  } else if (syncErrorCount > 0) {
+    // Red bar on error
+    mainWindow.setProgressBar(1, { mode: 'error' });
+    tray?.setToolTip(`DriveGO — ${syncErrorCount} erro${syncErrorCount > 1 ? 's' : ''} de sincronização`);
+  } else {
+    // Remove progress bar — all clear
+    mainWindow.setProgressBar(-1);
+    tray?.setToolTip('DriveGO — Sincronização em nuvem');
+  }
+}
+
+function notifySyncComplete(folderName: string, fileCount: number) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: 'DriveGO — Sincronização concluída',
+    body: fileCount === 1
+      ? `"${folderName}": 1 arquivo enviado para a nuvem`
+      : `"${folderName}": ${fileCount} arquivos enviados para a nuvem`,
+    silent: true,
+  }).show();
+}
+
+function notifyUploadComplete(fileName: string) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: 'DriveGO — Arquivo enviado',
+    body: `"${fileName}" foi sincronizado com a nuvem`,
+    silent: true,
+  }).show();
+}
+
+function notifySyncError(folderName: string, errorMsg: string) {
+  if (!Notification.isSupported()) return;
+  new Notification({
+    title: 'DriveGO — Erro de sincronização',
+    body: `"${folderName}": ${errorMsg}`,
+    silent: false,
+    urgency: 'critical',
+  }).show();
+}
 
 // ── Sync manifest — local cache that tracks which files are already synced ───
 // Loaded once per profile activation; saved after each batch of uploads.
@@ -277,6 +329,8 @@ const processQueue = async (folder: SyncFolderConfig) => {
   }
 
   activeUploads.set(localPath, true);
+  activeSyncCount++;
+  syncStateChanged();
   setStatus(localPath, { status: 'syncing', pendingFiles: queue.size });
 
   const files = [...queue];
@@ -302,11 +356,22 @@ const processQueue = async (folder: SyncFolderConfig) => {
         errorMessage: null,
       });
       logSuccess('upload', `Arquivo enviado: ${fileName}`, remotePath);
+      // Notify for single-file uploads triggered by the watcher
+      if (files.length === 1) notifyUploadComplete(fileName);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       logError('upload', `Falha ao enviar: ${fileName}`, msg);
     }
   }
+
+  // Batch notification when multiple files were uploaded at once
+  if (synced > 1) {
+    const folder = getSyncFolders().find((f) => f.localPath === localPath);
+    if (folder) notifySyncComplete(folder.name, synced);
+  }
+
+  activeSyncCount = Math.max(0, activeSyncCount - 1);
+  syncStateChanged();
 
   setStatus(localPath, {
     status: queue.size > 0 ? 'syncing' : 'watching',
@@ -506,6 +571,8 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
     syncedFiles: 0,
     pendingFiles: pending.length,
   });
+  activeSyncCount++;
+  syncStateChanged();
 
   let done = 0;
   for (const filePath of pending) {
@@ -533,6 +600,9 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
     }
   }
 
+  activeSyncCount = Math.max(0, activeSyncCount - 1);
+  syncStateChanged();
+
   setStatus(localPath, {
     status: 'watching',
     pendingFiles: 0,
@@ -543,6 +613,8 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
 
   logSuccess('sync', `Sincronização concluída: ${folder.name}`,
     `${done}/${pending.length} arquivo(s) enviado(s)`);
+
+  if (done > 0) notifySyncComplete(folder.name, done);
 }
 
 // ─── Start saved watchers at launch (before userId is known) ─────────────────
