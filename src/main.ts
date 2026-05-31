@@ -146,6 +146,7 @@ const RELEASES_API = 'https://api.github.com/repos/jeanvilanova/drivergo-desktop
 const DOWNLOAD_URL = 'https://github.com/jeanvilanova/drivergo-desktop/releases/latest/download/DriveGo-Setup.msi';
 
 let pendingUpdateVersion: string | null = null;
+let updateInProgress = false;
 
 function parseVersion(v: string): number[] {
   return v.replace(/^v/, '').split('.').map(Number);
@@ -161,6 +162,106 @@ function isNewer(remote: string, current: string): boolean {
   return false;
 }
 
+// Downloads the MSI following redirects, reports progress via callback
+async function downloadFile(url: string, dest: string, onProgress: (pct: number) => void): Promise<void> {
+  const https = await import('node:https');
+  const http  = await import('node:http');
+
+  return new Promise((resolve, reject) => {
+    const follow = (currentUrl: string) => {
+      const parsed = new URL(currentUrl);
+      const transport = parsed.protocol === 'https:' ? https : http;
+
+      transport.get(currentUrl, { headers: { 'User-Agent': `DriveGO/${app.getVersion()}` } }, (res) => {
+        if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) {
+          follow(res.headers.location!);
+          return;
+        }
+        if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+
+        const total = parseInt(res.headers['content-length'] ?? '0', 10);
+        let received = 0;
+        const file = fs.createWriteStream(dest);
+
+        res.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (total > 0) onProgress(Math.round((received / total) * 100));
+        });
+        res.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+        file.on('error', reject);
+        res.on('error', reject);
+      }).on('error', reject);
+    };
+
+    follow(url);
+  });
+}
+
+async function promptAndInstallUpdate(version: string): Promise<void> {
+  if (updateInProgress) return;
+  updateInProgress = true;
+
+  // Show OK / Cancel dialog
+  const { response } = await dialog.showMessageBox({
+    type: 'info',
+    title: 'Atualização disponível',
+    message: `DriveGO ${version} está disponível`,
+    detail: 'Deseja baixar e instalar agora? O aplicativo será reiniciado automaticamente.',
+    buttons: ['Atualizar agora', 'Cancelar'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  if (response !== 0) { updateInProgress = false; return; }
+
+  // Download MSI to temp folder
+  const tmpMsi = path.join(app.getPath('temp'), `DriveGo-Setup-${version}.msi`);
+
+  tray?.displayBalloon?.({
+    title: 'DriveGO — Baixando atualização',
+    content: `Baixando versão ${version}… Aguarde.`,
+    iconType: 'info',
+  });
+  tray?.setToolTip(`DriveGO — Baixando atualização ${version}…`);
+  mainWindow?.setProgressBar(0.05, { mode: 'normal' });
+
+  try {
+    await downloadFile(DOWNLOAD_URL, tmpMsi, (pct) => {
+      mainWindow?.setProgressBar(pct / 100, { mode: 'normal' });
+      tray?.setToolTip(`DriveGO — Baixando ${pct}%`);
+    });
+  } catch (err) {
+    updateInProgress = false;
+    mainWindow?.setProgressBar(-1);
+    tray?.setToolTip('DriveGO — Sincronização em nuvem');
+    const msg = err instanceof Error ? err.message : String(err);
+    logError('sistema', 'Falha ao baixar atualização', msg);
+    dialog.showErrorBox('Erro no download', `Não foi possível baixar a atualização:\n${msg}`);
+    return;
+  }
+
+  mainWindow?.setProgressBar(1, { mode: 'normal' });
+  tray?.setToolTip('DriveGO — Instalando atualização…');
+  logInfo('sistema', `Atualização ${version} baixada — iniciando instalação silenciosa`);
+
+  // Launch MSI silently (/quiet = no UI, /norestart = don't reboot automatically)
+  // The process is detached so it outlives this app instance.
+  const { spawn } = await import('node:child_process');
+  const installer = spawn('msiexec', ['/i', tmpMsi, '/quiet', '/norestart'], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  installer.unref();
+
+  // Give msiexec a moment to start, then quit
+  setTimeout(() => {
+    isQuitting = true;
+    app.quit();
+  }, 1500);
+}
+
 async function checkForUpdates(silent = true): Promise<void> {
   try {
     const res = await fetch(RELEASES_API, {
@@ -173,13 +274,14 @@ async function checkForUpdates(silent = true): Promise<void> {
 
     pendingUpdateVersion = remote;
     rebuildTrayMenu();
+    logInfo('sistema', `Nova versão disponível: ${remote}`);
 
+    // Show balloon — clicking triggers the update prompt
     tray?.displayBalloon?.({
       title: `DriveGO ${remote} disponível`,
-      content: 'Clique com botão direito na bandeja e escolha "Instalar atualização".',
+      content: 'Clique aqui para baixar e instalar a atualização.',
       iconType: 'info',
     });
-    logInfo('sistema', `Nova versão disponível: ${remote}`);
   } catch {
     if (!silent) logWarn('sistema', 'Não foi possível verificar atualizações');
   }
@@ -193,8 +295,8 @@ const buildMenu = () => Menu.buildFromTemplate([
   },
   { type: 'separator' },
   ...(pendingUpdateVersion ? [{
-    label: `Instalar atualização ${pendingUpdateVersion}`,
-    click: () => shell.openExternal(DOWNLOAD_URL),
+    label: `⬇ Instalar atualização ${pendingUpdateVersion}`,
+    click: () => promptAndInstallUpdate(pendingUpdateVersion!),
   }] : []),
   {
     label: 'Verificar atualizações',
@@ -220,6 +322,11 @@ const createTray = () => {
 
   // Clique simples no ícone: mostra/oculta a janela
   tray.on('click', () => toggleWindow());
+
+  // Clique no balloon de atualização → abre o diálogo OK/Cancelar
+  tray.on('balloon-click', () => {
+    if (pendingUpdateVersion) promptAndInstallUpdate(pendingUpdateVersion);
+  });
 }
 
 const toggleWindow = () => {
