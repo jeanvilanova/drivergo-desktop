@@ -8,7 +8,7 @@ import {
   setSyncUserId, getSyncUserId,
   type SyncFolderConfig,
 } from './lib/sync-store';
-import { uploadFileFromDisk, walkFolder, listRemotePaths } from './lib/uploader-main';
+import { uploadFileFromDisk, walkFolder, listRemotePaths, isLockedFileError } from './lib/uploader-main';
 import {
   setLogPush, getEntries, clearEntries,
   logInfo, logSuccess, logWarn, logError,
@@ -467,7 +467,13 @@ const processQueue = async (folder: SyncFolderConfig) => {
       if (files.length === 1) notifyUploadComplete(fileName);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logError('upload', `Falha ao enviar: ${fileName}`, msg);
+      if (isLockedFileError(err)) {
+        // File temporarily in use — it stays out of the manifest, so it will
+        // be retried automatically on the next sync pass / app startup.
+        logWarn('upload', `Ignorado (arquivo em uso, será reenviado): ${fileName}`, msg);
+      } else {
+        logError('upload', `Falha ao enviar: ${fileName}`, msg);
+      }
     }
   }
 
@@ -529,6 +535,7 @@ const startWatcher = (folder: SyncFolderConfig) => {
     ignored: /(^|[/\\])\../,
     persistent: true,
     ignoreInitial: true,
+    followSymlinks: false,   // prevents EPERM on Windows junctions (e.g. "Minhas Músicas")
     awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 500 },
   });
 
@@ -536,6 +543,13 @@ const startWatcher = (folder: SyncFolderConfig) => {
   watcher.on('change', (fp) => scheduleUpload(folder, fp));
   watcher.on('error',  (err) => {
     const msg = String(err);
+    // Permission errors on Windows junctions/symlinks (e.g. "Minhas Músicas"
+    // inside Documents) are non-fatal: the rest of the folder keeps syncing.
+    // Log a warning but do NOT flag the whole folder as errored.
+    if (isLockedFileError(err)) {
+      logWarn('pasta', `Subpasta ignorada (sem permissão): ${folder.name}`, msg);
+      return;
+    }
     setStatus(localPath, { status: 'error', errorMessage: msg });
     logError('pasta', `Erro no monitoramento: ${folder.name}`, msg);
   });
@@ -682,6 +696,8 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
   syncStateChanged();
 
   let done = 0;
+  const retryQueue: string[] = [];
+
   for (const filePath of pending) {
     const fileName = path.basename(filePath);
     try {
@@ -703,7 +719,37 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
       logSuccess('upload', `Enviado: ${fileName}`, `${done}/${pending.length}`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logError('upload', `Falha: ${fileName}`, msg);
+      if (isLockedFileError(err)) {
+        // File temporarily locked (e.g. open in accounting software) — retry later
+        logWarn('upload', `Bloqueado (retry): ${fileName}`, msg);
+        retryQueue.push(filePath);
+      } else {
+        logError('upload', `Falha: ${fileName}`, msg);
+      }
+    }
+  }
+
+  // Retry locked files once after a short delay
+  if (retryQueue.length > 0) {
+    logInfo('sync', `Retentando ${retryQueue.length} arquivo(s) bloqueado(s)…`);
+    await new Promise((r) => setTimeout(r, 3000));
+    for (const filePath of retryQueue) {
+      const fileName = path.basename(filePath);
+      try {
+        const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
+        const remotePath = folder.remotePrefix + relative;
+        await uploadFileFromDisk(userId, filePath, remotePath);
+        done++;
+        try {
+          const stats = fs.statSync(filePath);
+          manifest = markSynced(manifest, filePath, stats, remotePath);
+        } catch { /* ignore */ }
+        scheduleSaveManifest();
+        logSuccess('upload', `Enviado (retry): ${fileName}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logWarn('upload', `Ignorado (arquivo em uso): ${fileName}`, msg);
+      }
     }
   }
 

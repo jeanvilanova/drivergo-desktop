@@ -39,6 +39,17 @@ function getMime(filePath: string): string {
   return MIME_MAP[ext] || 'application/octet-stream';
 }
 
+/**
+ * Classifies an error as a transient "file locked / not accessible" condition,
+ * as opposed to a genuine failure. Locked files (e.g. NFe XMLs held open by
+ * fiscal software, or Windows junctions) are not fatal — they get retried on
+ * the next sync pass instead of being reported as hard errors.
+ */
+export function isLockedFileError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /EPERM|EBUSY|EACCES|ENOENT|não acessível|Erro ao ler arquivo/i.test(msg);
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -445,6 +456,10 @@ export function walkFolder(folderPath: string): string[] {
     }
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue; // skip hidden
+      // Skip symlinks and Windows junctions to avoid EPERM errors.
+      // These are special OS-managed paths (e.g. "Minhas Músicas" inside Documents)
+      // that point elsewhere and must not be followed.
+      if (entry.isSymbolicLink()) continue;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(fullPath);
