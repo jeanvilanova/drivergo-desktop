@@ -26,10 +26,30 @@ import {
   type DriveSyncProgress,
 } from './lib/drive-mapper';
 import { listCloudFiles, listSharedWithMe, generateShareLink } from './lib/uploader-main';
-import { activateProfile, deactivateProfile, type ProfileUser } from './lib/profile-store';
+import { activateProfile, deactivateProfile, getProfileConfigPath, type ProfileUser } from './lib/profile-store';
+import {
+  loadManifest, saveManifest, isUpToDate, markSynced, purgeFolderEntries,
+  type SyncManifest,
+} from './lib/sync-manifest';
 
 // ─── State ──────────────────────────────────────────────────────────────────
 let mainWindow: BrowserWindow | null = null;
+
+// ── Sync manifest — local cache that tracks which files are already synced ───
+// Loaded once per profile activation; saved after each batch of uploads.
+let manifest: SyncManifest = { version: 1, entries: {} };
+let manifestPath = '';
+
+// Debounced manifest save — prevents excessive disk writes when uploading
+// many files in rapid succession.
+let manifestSaveTimer: NodeJS.Timeout | null = null;
+function scheduleSaveManifest() {
+  if (manifestSaveTimer) clearTimeout(manifestSaveTimer);
+  manifestSaveTimer = setTimeout(() => {
+    if (manifestPath) saveManifest(manifestPath, manifest);
+    manifestSaveTimer = null;
+  }, 2000);
+}
 let tray: Tray | null = null;
 let isQuitting = false;
 
@@ -270,6 +290,11 @@ const processQueue = async (folder: SyncFolderConfig) => {
       const remotePath = remotePrefix + relative;
       await uploadFileFromDisk(userId, filePath, remotePath);
       synced++;
+      try {
+        const stats = fs.statSync(filePath);
+        manifest = markSynced(manifest, filePath, stats, remotePath);
+      } catch { /* ignore */ }
+      scheduleSaveManifest();
       setStatus(localPath, {
         status: 'syncing',
         pendingFiles: queue.size,
@@ -391,9 +416,9 @@ const resumeWatcher = (localPath: string) => {
 }
 
 // ─── Initial/differential sync ────────────────────────────────────────────────
-// Compares local files against what's already in the cloud and uploads only
-// what's missing. This ensures files created while the app was closed are
-// always uploaded without re-sending files that are already synced.
+// Two-level cache strategy:
+//   1. Local manifest (size + mtime) — zero network cost on repeat startups
+//   2. Remote listing via API — only for files not covered by the manifest
 const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
   const { localPath } = folder;
   const userId = getSyncUserId();
@@ -406,18 +431,62 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
     return;
   }
 
-  // Fetch the set of remote paths already in the cloud for this folder prefix
-  logInfo('sync', `Verificando arquivos na nuvem: ${folder.name}`);
+  // ── Level 1: manifest check (no network) ──────────────────────────────────
+  const needsCheck: string[] = [];
+  let manifestHits = 0;
+
+  if (!forceAll) {
+    for (const filePath of localFiles) {
+      try {
+        const stats = fs.statSync(filePath);
+        if (isUpToDate(manifest, filePath, stats)) {
+          manifestHits++;
+        } else {
+          needsCheck.push(filePath);
+        }
+      } catch {
+        needsCheck.push(filePath);
+      }
+    }
+  } else {
+    needsCheck.push(...localFiles);
+  }
+
+  if (needsCheck.length === 0) {
+    logSuccess('sync', `Tudo sincronizado: ${folder.name}`,
+      `${manifestHits} arquivo(s) confirmado(s) pelo cache local — nenhuma chamada de rede necessária`);
+    setStatus(localPath, {
+      status: 'watching',
+      pendingFiles: 0,
+      syncedFiles: manifestHits,
+      totalFiles: localFiles.length,
+      lastSynced: new Date().toISOString(),
+    });
+    return;
+  }
+
+  // ── Level 2: remote listing — only for files not in manifest ──────────────
+  logInfo('sync', `Verificando arquivos na nuvem: ${folder.name}`,
+    manifestHits > 0 ? `${manifestHits} no cache · ${needsCheck.length} a verificar` : undefined);
   const remoteSet = forceAll ? new Set<string>() : await listRemotePaths(userId, folder.remotePrefix);
 
-  // Filter to only files not yet in the cloud
-  const pending = localFiles.filter((filePath) => {
+  const pending: string[] = [];
+  for (const filePath of needsCheck) {
     const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
     const remotePath = folder.remotePrefix + relative;
-    return !remoteSet.has(remotePath);
-  });
+    if (remoteSet.has(remotePath)) {
+      // Already in cloud — backfill manifest so next startup is fully cached
+      try {
+        const stats = fs.statSync(filePath);
+        manifest = markSynced(manifest, filePath, stats, remotePath);
+      } catch { /* ignore */ }
+    } else {
+      pending.push(filePath);
+    }
+  }
 
   if (pending.length === 0) {
+    scheduleSaveManifest();
     logSuccess('sync', `Tudo sincronizado: ${folder.name}`, `${localFiles.length} arquivo(s) já na nuvem`);
     setStatus(localPath, {
       status: 'watching',
@@ -446,6 +515,11 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
       const remotePath = folder.remotePrefix + relative;
       await uploadFileFromDisk(userId, filePath, remotePath);
       done++;
+      try {
+        const stats = fs.statSync(filePath);
+        manifest = markSynced(manifest, filePath, stats, remotePath);
+      } catch { /* ignore */ }
+      scheduleSaveManifest();
       setStatus(localPath, {
         status: 'syncing',
         syncedFiles: done,
@@ -488,6 +562,10 @@ const startSavedWatchers = () => {
 // garantindo que cada usuário DriveGO tenha suas próprias configurações.
 ipcMain.handle('profile:activate', async (_e, user: ProfileUser) => {
   await activateProfile(user);
+  // Load the sync manifest for this user profile
+  manifestPath = getProfileConfigPath('sync-manifest.json');
+  manifest = loadManifest(manifestPath);
+  logInfo('sistema', `Manifesto de sync carregado: ${Object.keys(manifest.entries).length} entrada(s)`);
   // Inicia os watchers DEPOIS do perfil estar ativo, garantindo que
   // getSyncFolders() leia o sync-config.json correto para este usuário.
   startSavedWatchers();
@@ -496,6 +574,14 @@ ipcMain.handle('profile:activate', async (_e, user: ProfileUser) => {
 // Ativado no logout: para todos os watchers e zera o perfil ativo
 // para que o próximo usuário comece com estado limpo.
 ipcMain.handle('profile:deactivate', () => {
+  // Flush manifest before clearing state
+  if (manifestSaveTimer) {
+    clearTimeout(manifestSaveTimer);
+    manifestSaveTimer = null;
+    if (manifestPath) saveManifest(manifestPath, manifest);
+  }
+  manifest = { version: 1, entries: {} };
+  manifestPath = '';
   // Para todos os watchers do usuário atual
   for (const watcher of watchers.values()) watcher.close();
   watchers.clear();
@@ -632,6 +718,9 @@ ipcMain.handle('sync:removeFolder', (_e, localPath: string) => {
   logWarn('pasta', `Pasta removida: ${folder?.name ?? localPath}`);
   stopWatcher(localPath);
   removeSyncFolder(localPath);
+  // Purge manifest entries for this folder so a re-add starts fresh
+  manifest = purgeFolderEntries(manifest, localPath);
+  scheduleSaveManifest();
 });
 
 ipcMain.handle('sync:resync', async (_e, localPath: string) => {
