@@ -121,6 +121,20 @@ const getIconPath = (): string => {
   return path.join(app.getAppPath(), 'assets', 'icon.ico');
 }
 
+// Caminho estável para o auto-start do Windows.
+// O electron-wix-msi instala o binário em <root>\app-x.y.z\DriveGo.exe, mas mantém
+// um STUB estável em <root>\DriveGo.exe que sempre lança a versão mais recente.
+// Registrar o stub (e não o exe versionado) faz o auto-start sobreviver a updates.
+const getStableLaunchPath = (): string => {
+  const exe = path.basename(process.execPath);
+  const dir = path.dirname(process.execPath);
+  if (/^app-\d/i.test(path.basename(dir))) {
+    const stub = path.join(path.dirname(dir), exe);
+    if (fs.existsSync(stub)) return stub;
+  }
+  return process.execPath;
+}
+
 interface FolderStatus {
   localPath: string;
   status: 'idle' | 'syncing' | 'error' | 'watching' | 'paused';
@@ -1120,11 +1134,17 @@ if (!gotSingleInstanceLock) {
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.on('ready', () => {
-  // Registrar para iniciar automaticamente com o Windows (minimizado)
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    args: ['--hidden'],   // abre direto na bandeja
-  });
+  // Registrar para iniciar automaticamente com o Windows (minimizado).
+  // Só em produção (evita registrar o electron.exe de desenvolvimento, que abre
+  // a tela padrão do Electron no boot) e apontando para o STUB ESTÁVEL — assim o
+  // auto-start sempre abre a versão mais recente, sobrevivendo a atualizações.
+  if (app.isPackaged && process.platform === 'win32') {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      path: getStableLaunchPath(),
+      args: ['--hidden'],   // abre direto na bandeja
+    });
+  }
 
   createWindow();
   createTray();
