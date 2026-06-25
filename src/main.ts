@@ -141,6 +141,7 @@ interface FolderStatus {
   pendingFiles: number;
   syncedFiles: number;
   totalFiles: number;
+  uploadProgress?: number;
   lastSynced: string | null;
   errorMessage: string | null;
 }
@@ -463,7 +464,18 @@ const processQueue = async (folder: SyncFolderConfig) => {
     try {
       const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
       const remotePath = remotePrefix + relative;
-      await uploadFileFromDisk(userId, filePath, remotePath);
+      let lastPct = -1;
+      await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
+        if (pct === lastPct) return; // evita spam de IPC em arquivos pequenos
+        lastPct = pct;
+        setStatus(localPath, {
+          status: 'syncing',
+          pendingFiles: queue.size,
+          syncedFiles: synced,
+          uploadProgress: pct,
+          errorMessage: null,
+        });
+      });
       synced++;
       try {
         const stats = fs.statSync(filePath);
@@ -474,6 +486,7 @@ const processQueue = async (folder: SyncFolderConfig) => {
         status: 'syncing',
         pendingFiles: queue.size,
         syncedFiles: synced,
+        uploadProgress: 0,
         errorMessage: null,
       });
       logSuccess('upload', `Arquivo enviado: ${fileName}`, remotePath);
@@ -717,7 +730,18 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
     try {
       const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
       const remotePath = folder.remotePrefix + relative;
-      await uploadFileFromDisk(userId, filePath, remotePath);
+      let lastPct = -1;
+      await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
+        if (pct === lastPct) return; // evita spam de IPC em arquivos pequenos
+        lastPct = pct;
+        setStatus(localPath, {
+          status: 'syncing',
+          syncedFiles: done,
+          pendingFiles: pending.length - done,
+          totalFiles: pending.length,
+          uploadProgress: pct,
+        });
+      });
       done++;
       try {
         const stats = fs.statSync(filePath);
@@ -729,6 +753,7 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
         syncedFiles: done,
         pendingFiles: pending.length - done,
         totalFiles: pending.length,
+        uploadProgress: 0,
       });
       logSuccess('upload', `Enviado: ${fileName}`, `${done}/${pending.length}`);
     } catch (err) {

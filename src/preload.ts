@@ -6,6 +6,7 @@ export interface FolderStatus {
   pendingFiles: number;
   syncedFiles: number;
   totalFiles: number;
+  uploadProgress?: number;
   lastSynced: string | null;
   errorMessage: string | null;
 }

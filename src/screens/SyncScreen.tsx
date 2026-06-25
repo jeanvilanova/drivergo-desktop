@@ -39,13 +39,18 @@ function StatusBadge({ status }: { status: FolderStatus['status'] }) {
 }
 
 // ── Progress bar ──────────────────────────────────────────────────────────────
-function ProgressBar({ done, total }: { done: number; total: number }) {
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+function ProgressBar({ done, total, fileProgress = 0 }: { done: number; total: number; fileProgress?: number }) {
+  // Inclui a fração do arquivo em andamento para a barra se mover mesmo
+  // quando há um único arquivo grande (ex.: 43 GB) ainda em envio.
+  const effectiveDone = done + Math.min(Math.max(fileProgress, 0), 100) / 100;
+  const pct = total > 0 ? Math.min(100, Math.round((effectiveDone / total) * 100)) : 0;
+  const showFilePct = fileProgress > 0 && fileProgress < 100 && done < total;
   return (
     <div style={{ marginTop: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
           {done.toLocaleString()} / {total.toLocaleString()} arquivos
+          {showFilePct && ` · enviando ${Math.round(fileProgress)}%`}
         </span>
         <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 700 }}>{pct}%</span>
       </div>
@@ -180,7 +185,7 @@ function FolderCard({ folder, onRemove, onResync, onPause, onResume }: {
           </div>
         )}
         {isSyncing && status.totalFiles > 0 && (
-          <ProgressBar done={status.syncedFiles} total={status.totalFiles} />
+          <ProgressBar done={status.syncedFiles} total={status.totalFiles} fileProgress={status.uploadProgress ?? 0} />
         )}
         {isPaused && status.lastSynced && (
           <div style={{ marginTop: 5, fontSize: 11, color: 'rgba(253,199,46,.7)' }}>
