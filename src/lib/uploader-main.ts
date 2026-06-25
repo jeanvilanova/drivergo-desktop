@@ -39,6 +39,29 @@ function getMime(filePath: string): string {
   return MIME_MAP[ext] || 'application/octet-stream';
 }
 
+// Files larger than this go through S3 multipart upload. The single-PUT path
+// hits EntityTooLarge above 5 GB on Hetzner/Ceph; multipart also adds
+// per-part retry resilience for everything above the threshold.
+const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100 MB
+const MIN_PART_SIZE = 64 * 1024 * 1024; // 64 MB
+const MAX_PARTS = 9500; // safety margin below S3's 10 000-part hard limit
+const PART_RETRIES = 3;
+
+// Prefix path with \\?\ to bypass Windows MAX_PATH (260 chars) limit.
+function toSafePath(localPath: string): string {
+  return process.platform === 'win32' && !localPath.startsWith('\\\\')
+    ? `\\\\?\\${localPath}`
+    : localPath;
+}
+
+// Part size scales up for very large files so we never exceed MAX_PARTS,
+// rounded to an 8 MB boundary.
+function computePartSize(totalBytes: number): number {
+  if (totalBytes / MIN_PART_SIZE <= MAX_PARTS) return MIN_PART_SIZE;
+  const eightMB = 8 * 1024 * 1024;
+  return Math.ceil(totalBytes / MAX_PARTS / eightMB) * eightMB;
+}
+
 /**
  * Classifies an error as a transient "file locked / not accessible" condition,
  * as opposed to a genuine failure. Locked files (e.g. NFe XMLs held open by
@@ -196,9 +219,167 @@ export async function listRemotePaths(
   }
 }
 
+// ---- Multipart upload (large files) ---------------------------------------
+
+interface PartRef {
+  partNumber: number;
+  etag: string;
+}
+
+/** Calls the `multipart` edge function for one control action. */
+async function multipartCall(
+  userId: string,
+  remotePath: string,
+  action: 'initiate' | 'sign-part' | 'complete' | 'abort',
+  extra: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${BASE_URL}/multipart`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${ANON_KEY}`,
+      apikey: ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ userId, filePath: remotePath, action, ...extra }),
+  });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j = await res.json(); msg = j.error || msg; } catch { /* ignore */ }
+    throw new Error(`Multipart ${action} falhou: ${msg}`);
+  }
+  return (await res.json()) as Record<string, unknown>;
+}
+
+/** PUTs a single byte range [start, end] of the file, returning the ETag. */
+function putPart(
+  url: string,
+  safePath: string,
+  start: number,
+  end: number,
+  partLen: number,
+  onPartProgress: (sent: number) => void,
+): Promise<string> {
+  const parsed = new URL(url);
+  const isHttps = parsed.protocol === 'https:';
+  const transport = isHttps ? https : http;
+
+  return new Promise((resolve, reject) => {
+    const options: https.RequestOptions = {
+      method: 'PUT',
+      hostname: parsed.hostname,
+      port: parsed.port || (isHttps ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      headers: { 'Content-Length': partLen },
+      timeout: 3600_000, // 1 h per part
+    };
+
+    const req = transport.request(options, (res) => {
+      let body = '';
+      res.on('data', (c: Buffer) => { body += c.toString(); });
+      res.on('end', () => {
+        const etag = res.headers.etag; // Node lowercases header names
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300 && etag) {
+          resolve(etag);
+        } else {
+          reject(new Error(`Parte falhou: ${res.statusCode} — ${body.slice(0, 200)}`));
+        }
+      });
+    });
+
+    req.on('timeout', () => { req.destroy(); reject(new Error('Parte expirou (timeout)')); });
+    req.on('error', (err) => reject(new Error(`Parte erro de rede: ${err.message}`)));
+
+    let sent = 0;
+    const fileStream = fs.createReadStream(safePath, { start, end });
+    fileStream.on('data', (chunk: Buffer) => { sent += chunk.length; onPartProgress(sent); });
+    fileStream.on('error', (err) => {
+      req.destroy();
+      reject(new Error(`Erro ao ler arquivo: ${err.message}`));
+    });
+    fileStream.pipe(req);
+  });
+}
+
+/** Uploads one part with retries (re-signs the URL on each attempt). */
+async function uploadPartWithRetry(
+  userId: string,
+  remotePath: string,
+  uploadId: string,
+  partNumber: number,
+  safePath: string,
+  start: number,
+  end: number,
+  partLen: number,
+  onPartProgress: (sent: number) => void,
+): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= PART_RETRIES; attempt++) {
+    try {
+      const signed = await multipartCall(userId, remotePath, 'sign-part', { uploadId, partNumber });
+      const url = signed.url as string;
+      return await putPart(url, safePath, start, end, partLen, onPartProgress);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < PART_RETRIES) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt)); // linear backoff
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+/** Full multipart upload flow for a single large file. */
+async function multipartUpload(
+  userId: string,
+  safePath: string,
+  remotePath: string,
+  totalBytes: number,
+  contentType: string,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  const partSize = computePartSize(totalBytes);
+  const numParts = Math.ceil(totalBytes / partSize);
+
+  const init = await multipartCall(userId, remotePath, 'initiate', { contentType });
+  const uploadId = init.uploadId as string;
+  if (!uploadId) throw new Error('Multipart: servidor não retornou uploadId');
+
+  const parts: PartRef[] = [];
+  let uploadedBytes = 0;
+
+  try {
+    for (let i = 0; i < numParts; i++) {
+      const partNumber = i + 1;
+      const start = i * partSize;
+      const end = Math.min(start + partSize, totalBytes) - 1; // inclusive
+      const partLen = end - start + 1;
+
+      const etag = await uploadPartWithRetry(
+        userId, remotePath, uploadId, partNumber, safePath, start, end, partLen,
+        (sent) => {
+          if (onProgress && totalBytes > 0) {
+            onProgress(Math.round(((uploadedBytes + sent) / totalBytes) * 100));
+          }
+        },
+      );
+
+      uploadedBytes += partLen;
+      parts.push({ partNumber, etag });
+      if (onProgress) onProgress(Math.round((uploadedBytes / totalBytes) * 100));
+    }
+
+    await multipartCall(userId, remotePath, 'complete', { uploadId, parts });
+  } catch (err) {
+    // Best-effort cleanup so we don't leave dangling parts billing storage.
+    try { await multipartCall(userId, remotePath, 'abort', { uploadId }); } catch { /* ignore */ }
+    throw err;
+  }
+}
+
 /**
  * Public API — upload a file from disk to the cloud.
- * No size limit. Uses presigned URL → direct S3 PUT.
+ * No size limit. Small files use a single presigned PUT; files above
+ * MULTIPART_THRESHOLD use S3 multipart (resilient, no 5 GB ceiling).
  */
 export async function uploadFileFromDisk(
   userId: string,
@@ -207,11 +388,22 @@ export async function uploadFileFromDisk(
   onProgress?: (pct: number) => void,
 ): Promise<void> {
   const contentType = getMime(localPath);
+  const safePath = toSafePath(localPath);
 
-  // 1. Get presigned URL (fast, tiny request)
+  let totalBytes: number;
+  try {
+    totalBytes = fs.statSync(safePath).size;
+  } catch {
+    throw new Error(`Arquivo não acessível: ${path.basename(localPath)}`);
+  }
+
+  if (totalBytes > MULTIPART_THRESHOLD) {
+    await multipartUpload(userId, safePath, remotePath, totalBytes, contentType, onProgress);
+    return;
+  }
+
+  // Small file — single presigned PUT.
   const uploadUrl = await getPresignedPutUrl(userId, remotePath, contentType);
-
-  // 2. Stream the file directly to S3
   await putDirectToS3(uploadUrl, localPath, contentType, onProgress);
 }
 
