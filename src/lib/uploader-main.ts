@@ -45,7 +45,26 @@ function getMime(filePath: string): string {
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100 MB
 const MIN_PART_SIZE = 64 * 1024 * 1024; // 64 MB
 const MAX_PARTS = 9500; // safety margin below S3's 10 000-part hard limit
-const PART_RETRIES = 3;
+// Redes instáveis (ex.: link saturado para o Hetzner) derrubam conexões no
+// meio de uploads grandes. Tentativas generosas + backoff exponencial fazem
+// uma parte sobreviver a quedas transitórias em vez de abortar o upload todo.
+const PART_RETRIES = 8;
+const CONTROL_RETRIES = 4; // initiate/sign-part/complete/abort
+// Timeout de OCIOSIDADE do socket: se a conexão travar (sem bytes) por esse
+// tempo, presumimos socket morto e re-tentamos — em vez de esperar 1 h.
+const PART_IDLE_TIMEOUT = 120_000; // 2 min sem atividade
+
+// Conexões keep-alive reduzem reconexões TLS e quedas em links instáveis.
+const keepAliveHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
+const keepAliveHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Backoff exponencial (cap 30s) com jitter para espalhar re-tentativas. */
+function backoffDelay(attempt: number): number {
+  const base = Math.min(30_000, 500 * 2 ** (attempt - 1));
+  return base + Math.floor(Math.random() * 500);
+}
 
 // Prefix path with \\?\ to bypass Windows MAX_PATH (260 chars) limit.
 function toSafePath(localPath: string): string {
@@ -226,28 +245,50 @@ interface PartRef {
   etag: string;
 }
 
-/** Calls the `multipart` edge function for one control action. */
+/**
+ * Calls the `multipart` edge function for one control action, retrying
+ * transient failures (network drop reaching the function, 5xx, 429) with
+ * exponential backoff. Client errors (4xx other than 429) fail fast.
+ */
 async function multipartCall(
   userId: string,
   remotePath: string,
   action: 'initiate' | 'sign-part' | 'complete' | 'abort',
   extra: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(`${BASE_URL}/multipart`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${ANON_KEY}`,
-      apikey: ANON_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ userId, filePath: remotePath, action, ...extra }),
-  });
-  if (!res.ok) {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= CONTROL_RETRIES; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE_URL}/multipart`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${ANON_KEY}`,
+          apikey: ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId, filePath: remotePath, action, ...extra }),
+      });
+    } catch (err) {
+      // Couldn't even reach the edge function (network blip) — retry.
+      lastErr = err;
+      if (attempt < CONTROL_RETRIES) { await sleep(backoffDelay(attempt)); continue; }
+      throw new Error(`Multipart ${action} sem rede: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (res.ok) return (await res.json()) as Record<string, unknown>;
+
     let msg = `HTTP ${res.status}`;
     try { const j = await res.json(); msg = j.error || msg; } catch { /* ignore */ }
+    // 5xx / 429 are transient — retry; other 4xx are client errors — fail fast.
+    if ((res.status >= 500 || res.status === 429) && attempt < CONTROL_RETRIES) {
+      lastErr = new Error(msg);
+      await sleep(backoffDelay(attempt));
+      continue;
+    }
     throw new Error(`Multipart ${action} falhou: ${msg}`);
   }
-  return (await res.json()) as Record<string, unknown>;
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 /** PUTs a single byte range [start, end] of the file, returning the ETag. */
@@ -270,7 +311,22 @@ function putPart(
       port: parsed.port || (isHttps ? 443 : 80),
       path: parsed.pathname + parsed.search,
       headers: { 'Content-Length': partLen },
-      timeout: 3600_000, // 1 h per part
+      agent: isHttps ? keepAliveHttpsAgent : keepAliveHttpAgent,
+      timeout: PART_IDLE_TIMEOUT, // socket idle timeout — detecta stall e re-tenta
+    };
+
+    let sent = 0;
+    let settled = false;
+    const fileStream = fs.createReadStream(safePath, { start, end });
+
+    // Single teardown path: ensures both the socket and the file handle are
+    // released on any outcome, so 8 retries × hundreds of parts never leak fds.
+    const finish = (err: Error | null, etag?: string) => {
+      if (settled) return;
+      settled = true;
+      fileStream.destroy();
+      if (err) { req.destroy(); reject(err); }
+      else resolve(etag!);
     };
 
     const req = transport.request(options, (res) => {
@@ -279,23 +335,18 @@ function putPart(
       res.on('end', () => {
         const etag = res.headers.etag; // Node lowercases header names
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300 && etag) {
-          resolve(etag);
+          finish(null, etag);
         } else {
-          reject(new Error(`Parte falhou: ${res.statusCode} — ${body.slice(0, 200)}`));
+          finish(new Error(`Parte falhou: ${res.statusCode} — ${body.slice(0, 200)}`));
         }
       });
     });
 
-    req.on('timeout', () => { req.destroy(); reject(new Error('Parte expirou (timeout)')); });
-    req.on('error', (err) => reject(new Error(`Parte erro de rede: ${err.message}`)));
+    req.on('timeout', () => finish(new Error('Parte travada (sem dados por 2 min)')));
+    req.on('error', (err) => finish(new Error(`Parte erro de rede: ${err.message}`)));
 
-    let sent = 0;
-    const fileStream = fs.createReadStream(safePath, { start, end });
     fileStream.on('data', (chunk: Buffer) => { sent += chunk.length; onPartProgress(sent); });
-    fileStream.on('error', (err) => {
-      req.destroy();
-      reject(new Error(`Erro ao ler arquivo: ${err.message}`));
-    });
+    fileStream.on('error', (err) => finish(new Error(`Erro ao ler arquivo: ${err.message}`)));
     fileStream.pipe(req);
   });
 }
@@ -321,7 +372,7 @@ async function uploadPartWithRetry(
     } catch (err) {
       lastErr = err;
       if (attempt < PART_RETRIES) {
-        await new Promise((r) => setTimeout(r, 1000 * attempt)); // linear backoff
+        await sleep(backoffDelay(attempt)); // backoff exponencial + jitter
       }
     }
   }
