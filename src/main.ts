@@ -259,22 +259,72 @@ async function promptAndInstallUpdate(version: string): Promise<void> {
 
   mainWindow?.setProgressBar(1, { mode: 'normal' });
   tray?.setToolTip('DriveGO — Instalando atualização…');
-  logInfo('sistema', `Atualização ${version} baixada — iniciando instalação silenciosa`);
+  logInfo('sistema', `Atualização ${version} baixada — iniciando instalação`);
 
-  // Launch MSI silently (/quiet = no UI, /norestart = don't reboot automatically)
-  // The process is detached so it outlives this app instance.
+  let exitCode: number;
+  try {
+    exitCode = await runElevatedInstaller(tmpMsi);
+  } catch (err) {
+    updateInProgress = false;
+    mainWindow?.setProgressBar(-1);
+    tray?.setToolTip('DriveGO — Sincronização em nuvem');
+    const msg = err instanceof Error ? err.message : String(err);
+    logError('sistema', 'Falha ao instalar atualização', msg);
+    dialog.showErrorBox('Erro na instalação', `Não foi possível instalar a atualização:\n${msg}`);
+    return;
+  }
+
+  // MSI exit codes: 0 = sucesso, 3010 = sucesso mas requer reinício.
+  // 1602/1223 = usuário recusou a solicitação de administrador (UAC).
+  if (exitCode !== 0 && exitCode !== 3010) {
+    updateInProgress = false;
+    mainWindow?.setProgressBar(-1);
+    tray?.setToolTip('DriveGO — Sincronização em nuvem');
+    logError('sistema', `Instalação da atualização falhou (código ${exitCode})`, tmpMsi);
+    dialog.showErrorBox(
+      'Erro na instalação',
+      exitCode === 1602 || exitCode === 1223
+        ? 'A instalação foi cancelada — é necessário aceitar a solicitação de administrador do Windows para atualizar.'
+        : `A instalação retornou um erro (código ${exitCode}). Tente novamente ou baixe o instalador manualmente em drivego.app.br.`,
+    );
+    return;
+  }
+
+  logSuccess('sistema', `Atualização ${version} instalada com sucesso — reiniciando`);
+  isQuitting = true;
+  app.quit();
+}
+
+/**
+ * Runs the MSI elevated via PowerShell's Start-Process -Verb RunAs, waiting
+ * for it to actually finish and returning msiexec's real exit code.
+ *
+ * The previous implementation spawned msiexec directly, detached and with
+ * stdio ignored, then just waited 1.5s and quit — it never checked whether
+ * the install actually succeeded. Since the MSI installs per-machine (Program
+ * Files), a non-elevated msiexec call fails silently without admin rights:
+ * the app would quit anyway, the old exe would relaunch unchanged, and the
+ * updater would nag about the same "new version" forever. Requesting
+ * elevation up front (one UAC prompt) and checking the exit code fixes both
+ * the elevation gap and the false "it worked" assumption.
+ */
+async function runElevatedInstaller(msiPath: string): Promise<number> {
   const { spawn } = await import('node:child_process');
-  const installer = spawn('msiexec', ['/i', tmpMsi, '/quiet', '/norestart'], {
-    detached: true,
-    stdio: 'ignore',
+  return new Promise((resolve, reject) => {
+    const psCommand =
+      `$p = Start-Process msiexec.exe -ArgumentList '/i','"${msiPath}"','/quiet','/norestart' ` +
+      `-Verb RunAs -Wait -PassThru; exit $p.ExitCode`;
+    const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', psCommand], {
+      windowsHide: true,
+    });
+    let stderr = '';
+    ps.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+    ps.on('error', reject);
+    ps.on('close', (code) => {
+      if (code === null) reject(new Error(stderr || 'Processo de instalação encerrado inesperadamente'));
+      else resolve(code);
+    });
   });
-  installer.unref();
-
-  // Give msiexec a moment to start, then quit
-  setTimeout(() => {
-    isQuitting = true;
-    app.quit();
-  }, 1500);
 }
 
 async function checkForUpdates(silent = true): Promise<void> {
