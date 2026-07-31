@@ -292,6 +292,13 @@ async function promptAndInstallUpdate(version: string): Promise<void> {
 
   logSuccess('sistema', `Atualização ${version} instalada com sucesso — reiniciando`);
   isQuitting = true;
+  // The MSI replaces the files on disk but nothing brings the app back up —
+  // without this, DriveGO stays closed until the user opens it manually or
+  // logs back into Windows. Relaunch through the stable stub (same path the
+  // Windows login item uses) so it picks up the just-installed version, and
+  // pass --hidden so it comes back straight into the tray like a normal
+  // background auto-start instead of popping the window after an unattended update.
+  app.relaunch({ execPath: getStableLaunchPath(), args: ['--hidden'] });
   app.quit();
 }
 
