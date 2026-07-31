@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import https from 'node:https';
 import http from 'node:http';
+import os from 'node:os';
 
 const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
 const ANON_KEY =
@@ -92,6 +93,32 @@ export function isLockedFileError(err: unknown): boolean {
   return /EPERM|EBUSY|EACCES|ENOENT|não acessível|Erro ao ler arquivo/i.test(msg);
 }
 
+/**
+ * Thrown when the server rejects an upload because the remote object was
+ * modified since this machine last saw it (another machine synced a newer
+ * version in between). Callers should not retry the same remotePath — see
+ * uploadFileFromDisk(), which handles this by saving to a conflict copy.
+ */
+export class UploadConflictError extends Error {
+  constructor(public readonly currentEtag: string | null) {
+    super('O arquivo foi alterado por outro dispositivo antes deste envio.');
+    this.name = 'UploadConflictError';
+  }
+}
+
+/**
+ * Builds a Dropbox-style conflict-copy path: "dir/name (conflito - HOST - timestamp).ext".
+ * Used when the server reports that another machine changed the file first,
+ * so both versions are preserved instead of one silently overwriting the other.
+ */
+export function buildConflictPath(remotePath: string): string {
+  const ext = path.extname(remotePath);
+  const base = remotePath.slice(0, remotePath.length - ext.length);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const host = os.hostname().replace(/[\\/:*?"<>|]/g, '_');
+  return `${base} (conflito - ${host} - ${stamp})${ext}`;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -108,6 +135,7 @@ async function getPresignedPutUrl(
   userId: string,
   remotePath: string,
   contentType: string,
+  expectedEtag?: string,
 ): Promise<string> {
   const res = await fetch(`${BASE_URL}/get-upload-url`, {
     method: 'POST',
@@ -116,8 +144,13 @@ async function getPresignedPutUrl(
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ userId, filePath: remotePath, contentType }),
+    body: JSON.stringify({ userId, filePath: remotePath, contentType, expectedEtag }),
   });
+
+  if (res.status === 409) {
+    const j = await res.json().catch(() => ({}));
+    throw new UploadConflictError(j.currentEtag ?? null);
+  }
 
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -139,7 +172,7 @@ async function putDirectToS3(
   localPath: string,
   contentType: string,
   onProgress?: (pct: number) => void,
-): Promise<void> {
+): Promise<string | null> {
   // Prefix path with \\?\ to bypass Windows MAX_PATH (260 chars) limit
   const safePath = process.platform === 'win32' && !localPath.startsWith('\\\\')
     ? `\\\\?\\${localPath}`
@@ -176,7 +209,8 @@ async function putDirectToS3(
       res.on('data', (c: Buffer) => { body += c.toString(); });
       res.on('end', () => {
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          resolve();
+          const etag = res.headers.etag;
+          resolve(etag ? etag.replace(/^"|"$/g, '') : null);
         } else {
           reject(new Error(`S3 PUT falhou: ${res.statusCode} — ${body.slice(0, 200)}`));
         }
@@ -238,6 +272,41 @@ export async function listRemotePaths(
   }
 }
 
+/**
+ * Like listRemotePaths(), but also returns each file's current ETag.
+ * Used by the initial/differential sync to backfill the local manifest's
+ * remoteEtag for files that were already in the cloud and therefore never
+ * went through an upload on this machine — without this, a later local edit
+ * to one of those files would have no ETag to compare against, and a
+ * conflicting edit made from another machine in between would go undetected.
+ */
+export async function listRemoteFileEtags(
+  userId: string,
+  prefix: string,
+): Promise<Map<string, string>> {
+  try {
+    const res = await fetch(`${BASE_URL}/list-files`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ANON_KEY}`,
+        apikey: ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ userId, prefix }),
+    });
+    if (!res.ok) return new Map();
+    const json = await res.json();
+    const files: Array<{ fullPath: string; isFolder: boolean; etag?: string }> = json.files ?? [];
+    const map = new Map<string, string>();
+    for (const f of files) {
+      if (!f.isFolder && f.etag) map.set(f.fullPath, f.etag);
+    }
+    return map;
+  } catch {
+    return new Map();
+  }
+}
+
 // ---- Multipart upload (large files) ---------------------------------------
 
 interface PartRef {
@@ -277,6 +346,11 @@ async function multipartCall(
     }
 
     if (res.ok) return (await res.json()) as Record<string, unknown>;
+
+    if (res.status === 409) {
+      const j = await res.json().catch(() => ({}));
+      throw new UploadConflictError(j.currentEtag ?? null);
+    }
 
     let msg = `HTTP ${res.status}`;
     try { const j = await res.json(); msg = j.error || msg; } catch { /* ignore */ }
@@ -387,11 +461,12 @@ async function multipartUpload(
   totalBytes: number,
   contentType: string,
   onProgress?: (pct: number) => void,
-): Promise<void> {
+  expectedEtag?: string,
+): Promise<string | null> {
   const partSize = computePartSize(totalBytes);
   const numParts = Math.ceil(totalBytes / partSize);
 
-  const init = await multipartCall(userId, remotePath, 'initiate', { contentType });
+  const init = await multipartCall(userId, remotePath, 'initiate', { contentType, expectedEtag });
   const uploadId = init.uploadId as string;
   if (!uploadId) throw new Error('Multipart: servidor não retornou uploadId');
 
@@ -419,7 +494,9 @@ async function multipartUpload(
       if (onProgress) onProgress(Math.round((uploadedBytes / totalBytes) * 100));
     }
 
-    await multipartCall(userId, remotePath, 'complete', { uploadId, parts });
+    const completed = await multipartCall(userId, remotePath, 'complete', { uploadId, parts });
+    const etag = (completed.etag as string | undefined) ?? null;
+    return etag ? etag.replace(/^"|"$/g, '') : null;
   } catch (err) {
     // Best-effort cleanup so we don't leave dangling parts billing storage.
     try { await multipartCall(userId, remotePath, 'abort', { uploadId }); } catch { /* ignore */ }
@@ -427,17 +504,36 @@ async function multipartUpload(
   }
 }
 
+export interface UploadResult {
+  /** The remote path the file actually ended up at — differs from the
+   * requested path when a conflict copy was created (see `conflict`). */
+  remotePath: string;
+  /** ETag S3 assigned to the uploaded object, if known. Feed this back as
+   * `expectedEtag` on the next upload of the same remotePath. */
+  etag: string | null;
+  /** True when another machine had changed the file first, so this upload
+   * was redirected to a conflict-copy path instead of overwriting it. */
+  conflict: boolean;
+}
+
 /**
  * Public API — upload a file from disk to the cloud.
  * No size limit. Small files use a single presigned PUT; files above
  * MULTIPART_THRESHOLD use S3 multipart (resilient, no 5 GB ceiling).
+ *
+ * `expectedEtag` — pass the ETag this machine last recorded for `remotePath`
+ * (from sync-manifest) so the server can detect that another machine
+ * uploaded a newer version in between. On conflict, the file is
+ * automatically re-uploaded to a conflict-copy path instead of silently
+ * overwriting the other machine's version — see UploadConflictError.
  */
 export async function uploadFileFromDisk(
   userId: string,
   localPath: string,
   remotePath: string,
   onProgress?: (pct: number) => void,
-): Promise<void> {
+  expectedEtag?: string,
+): Promise<UploadResult> {
   const contentType = getMime(localPath);
   const safePath = toSafePath(localPath);
 
@@ -448,14 +544,27 @@ export async function uploadFileFromDisk(
     throw new Error(`Arquivo não acessível: ${path.basename(localPath)}`);
   }
 
-  if (totalBytes > MULTIPART_THRESHOLD) {
-    await multipartUpload(userId, safePath, remotePath, totalBytes, contentType, onProgress);
-    return;
-  }
+  const attempt = async (target: string, etagHint?: string): Promise<{ etag: string | null }> => {
+    if (totalBytes > MULTIPART_THRESHOLD) {
+      const etag = await multipartUpload(userId, safePath, target, totalBytes, contentType, onProgress, etagHint);
+      return { etag };
+    }
+    const uploadUrl = await getPresignedPutUrl(userId, target, contentType, etagHint);
+    const etag = await putDirectToS3(uploadUrl, localPath, contentType, onProgress);
+    return { etag };
+  };
 
-  // Small file — single presigned PUT.
-  const uploadUrl = await getPresignedPutUrl(userId, remotePath, contentType);
-  await putDirectToS3(uploadUrl, localPath, contentType, onProgress);
+  try {
+    const { etag } = await attempt(remotePath, expectedEtag);
+    return { remotePath, etag, conflict: false };
+  } catch (err) {
+    if (!(err instanceof UploadConflictError)) throw err;
+    // Another machine's version is on the server — never overwrite it.
+    // Save this machine's edit alongside it instead, as a conflict copy.
+    const conflictPath = buildConflictPath(remotePath);
+    const { etag } = await attempt(conflictPath);
+    return { remotePath: conflictPath, etag, conflict: true };
+  }
 }
 
 /**

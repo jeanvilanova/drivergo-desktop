@@ -7,6 +7,11 @@ export interface ManifestEntry {
   mtimeMs: number;
   remotePath: string;
   syncedAt: string;
+  // ETag the server had for `remotePath` the last time *this* machine wrote or
+  // confirmed it. Sent back as `expectedEtag` on the next upload so the server
+  // can detect that another machine overwrote the file in between (optimistic
+  // concurrency) — see uploader-main.ts uploadFileFromDisk().
+  remoteEtag?: string;
 }
 
 export interface SyncManifest {
@@ -52,6 +57,7 @@ export function markSynced(
   localPath: string,
   stats: fs.Stats,
   remotePath: string,
+  remoteEtag?: string,
 ): SyncManifest {
   return {
     ...manifest,
@@ -62,9 +68,15 @@ export function markSynced(
         mtimeMs: stats.mtimeMs,
         remotePath,
         syncedAt: new Date().toISOString(),
+        remoteEtag,
       },
     },
   };
+}
+
+/** Looks up the manifest entry for a local file, if any (e.g. to read its last known remoteEtag). */
+export function getManifestEntry(manifest: SyncManifest, localPath: string): ManifestEntry | undefined {
+  return manifest.entries[key(localPath)];
 }
 
 export function removeEntry(manifest: SyncManifest, localPath: string): SyncManifest {

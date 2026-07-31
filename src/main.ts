@@ -8,7 +8,7 @@ import {
   setSyncUserId, getSyncUserId,
   type SyncFolderConfig,
 } from './lib/sync-store';
-import { uploadFileFromDisk, walkFolder, listRemotePaths, isLockedFileError } from './lib/uploader-main';
+import { uploadFileFromDisk, walkFolder, listRemoteFileEtags, isLockedFileError } from './lib/uploader-main';
 import {
   setLogPush, getEntries, clearEntries,
   logInfo, logSuccess, logWarn, logError,
@@ -28,7 +28,7 @@ import {
 import { listCloudFiles, listSharedWithMe, generateShareLink } from './lib/uploader-main';
 import { activateProfile, deactivateProfile, getProfileConfigPath, type ProfileUser } from './lib/profile-store';
 import {
-  loadManifest, saveManifest, isUpToDate, markSynced, purgeFolderEntries,
+  loadManifest, saveManifest, isUpToDate, markSynced, purgeFolderEntries, getManifestEntry,
   type SyncManifest,
 } from './lib/sync-manifest';
 
@@ -464,8 +464,9 @@ const processQueue = async (folder: SyncFolderConfig) => {
     try {
       const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
       const remotePath = remotePrefix + relative;
+      const expectedEtag = getManifestEntry(manifest, filePath)?.remoteEtag;
       let lastPct = -1;
-      await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
+      const result = await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
         if (pct === lastPct) return; // evita spam de IPC em arquivos pequenos
         lastPct = pct;
         setStatus(localPath, {
@@ -475,11 +476,11 @@ const processQueue = async (folder: SyncFolderConfig) => {
           uploadProgress: pct,
           errorMessage: null,
         });
-      });
+      }, expectedEtag);
       synced++;
       try {
         const stats = fs.statSync(filePath);
-        manifest = markSynced(manifest, filePath, stats, remotePath);
+        manifest = markSynced(manifest, filePath, stats, result.remotePath, result.etag ?? undefined);
       } catch { /* ignore */ }
       scheduleSaveManifest();
       setStatus(localPath, {
@@ -489,7 +490,12 @@ const processQueue = async (folder: SyncFolderConfig) => {
         uploadProgress: 0,
         errorMessage: null,
       });
-      logSuccess('upload', `Arquivo enviado: ${fileName}`, remotePath);
+      if (result.conflict) {
+        logWarn('sync', `Conflito detectado: outro dispositivo já havia alterado ${fileName}`,
+          `Sua versão foi preservada em: ${result.remotePath}`);
+      } else {
+        logSuccess('upload', `Arquivo enviado: ${fileName}`, remotePath);
+      }
       // Notify for single-file uploads triggered by the watcher
       if (files.length === 1) notifyUploadComplete(fileName);
     } catch (err) {
@@ -681,17 +687,22 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
   // ── Level 2: remote listing — only for files not in manifest ──────────────
   logInfo('sync', `Verificando arquivos na nuvem: ${folder.name}`,
     manifestHits > 0 ? `${manifestHits} no cache · ${needsCheck.length} a verificar` : undefined);
-  const remoteSet = forceAll ? new Set<string>() : await listRemotePaths(userId, folder.remotePrefix);
+  // Also fetches each file's ETag: files adopted here (already in the cloud,
+  // never uploaded by this machine) still need a remoteEtag on record —
+  // otherwise a future local edit to one of them would have nothing to
+  // compare against, and a conflicting edit from another machine would go
+  // undetected (silent overwrite instead of a conflict copy).
+  const remoteEtags = forceAll ? new Map<string, string>() : await listRemoteFileEtags(userId, folder.remotePrefix);
 
   const pending: string[] = [];
   for (const filePath of needsCheck) {
     const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
     const remotePath = folder.remotePrefix + relative;
-    if (remoteSet.has(remotePath)) {
+    if (remoteEtags.has(remotePath)) {
       // Already in cloud — backfill manifest so next startup is fully cached
       try {
         const stats = fs.statSync(filePath);
-        manifest = markSynced(manifest, filePath, stats, remotePath);
+        manifest = markSynced(manifest, filePath, stats, remotePath, remoteEtags.get(remotePath));
       } catch { /* ignore */ }
     } else {
       pending.push(filePath);
@@ -730,8 +741,9 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
     try {
       const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
       const remotePath = folder.remotePrefix + relative;
+      const expectedEtag = getManifestEntry(manifest, filePath)?.remoteEtag;
       let lastPct = -1;
-      await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
+      const result = await uploadFileFromDisk(userId, filePath, remotePath, (pct) => {
         if (pct === lastPct) return; // evita spam de IPC em arquivos pequenos
         lastPct = pct;
         setStatus(localPath, {
@@ -741,11 +753,11 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
           totalFiles: pending.length,
           uploadProgress: pct,
         });
-      });
+      }, expectedEtag);
       done++;
       try {
         const stats = fs.statSync(filePath);
-        manifest = markSynced(manifest, filePath, stats, remotePath);
+        manifest = markSynced(manifest, filePath, stats, result.remotePath, result.etag ?? undefined);
       } catch { /* ignore */ }
       scheduleSaveManifest();
       setStatus(localPath, {
@@ -755,7 +767,12 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
         totalFiles: pending.length,
         uploadProgress: 0,
       });
-      logSuccess('upload', `Enviado: ${fileName}`, `${done}/${pending.length}`);
+      if (result.conflict) {
+        logWarn('sync', `Conflito detectado: outro dispositivo já havia alterado ${fileName}`,
+          `Sua versão foi preservada em: ${result.remotePath}`);
+      } else {
+        logSuccess('upload', `Enviado: ${fileName}`, `${done}/${pending.length}`);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (isLockedFileError(err)) {
@@ -777,14 +794,20 @@ const doInitialSync = async (folder: SyncFolderConfig, forceAll = false) => {
       try {
         const relative   = path.relative(localPath, filePath).replace(/\\/g, '/');
         const remotePath = folder.remotePrefix + relative;
-        await uploadFileFromDisk(userId, filePath, remotePath);
+        const expectedEtag = getManifestEntry(manifest, filePath)?.remoteEtag;
+        const result = await uploadFileFromDisk(userId, filePath, remotePath, undefined, expectedEtag);
         done++;
         try {
           const stats = fs.statSync(filePath);
-          manifest = markSynced(manifest, filePath, stats, remotePath);
+          manifest = markSynced(manifest, filePath, stats, result.remotePath, result.etag ?? undefined);
         } catch { /* ignore */ }
         scheduleSaveManifest();
-        logSuccess('upload', `Enviado (retry): ${fileName}`);
+        if (result.conflict) {
+          logWarn('sync', `Conflito detectado (retry): outro dispositivo já havia alterado ${fileName}`,
+            `Sua versão foi preservada em: ${result.remotePath}`);
+        } else {
+          logSuccess('upload', `Enviado (retry): ${fileName}`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logWarn('upload', `Ignorado (arquivo em uso): ${fileName}`, msg);
