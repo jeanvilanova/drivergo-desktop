@@ -5,7 +5,7 @@ const ANON_KEY =
 export interface CloudUser {
   id: string;
   username: string;
-  display_name: string;
+  email: string;
   minio_bucket_name: string;
 }
 
@@ -42,8 +42,8 @@ async function call<T>(fn: string, body: unknown): Promise<T> {
   return json as T;
 }
 
-export async function login(username: string, password: string): Promise<CloudUser> {
-  const data = await call<{ user: CloudUser }>('user-login', { username, password });
+export async function login(email: string, password: string): Promise<CloudUser> {
+  const data = await call<{ user: CloudUser }>('user-login', { email, password });
   return data.user;
 }
 

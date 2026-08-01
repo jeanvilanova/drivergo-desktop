@@ -6,7 +6,7 @@ declare global {
     electronAPI: {
       // Perfil de usuário
       setActiveProfile: (user: {
-        id: string; username: string; display_name: string; minio_bucket_name: string;
+        id: string; username: string; email: string; minio_bucket_name: string;
       }) => Promise<void>;
       clearActiveProfile: () => Promise<void>;
 

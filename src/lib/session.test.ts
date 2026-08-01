@@ -17,7 +17,7 @@ function makeUser(overrides: Partial<CloudUser> = {}): CloudUser {
   return {
     id: 'user-001',
     username: 'testuser',
-    display_name: 'Test User',
+    email: 'testuser@example.com',
     minio_bucket_name: 'testuser-bucket',
     ...overrides,
   };
@@ -57,10 +57,10 @@ describe('session — loadSession()', () => {
   });
 
   it('returns full user object with all fields', () => {
-    const user = makeUser({ display_name: 'Jean Vilanova', minio_bucket_name: 'jean-bucket' });
+    const user = makeUser({ email: 'jean@example.com', minio_bucket_name: 'jean-bucket' });
     saveSession(user);
     const loaded = loadSession()!;
-    expect(loaded.display_name).toBe('Jean Vilanova');
+    expect(loaded.email).toBe('jean@example.com');
     expect(loaded.minio_bucket_name).toBe('jean-bucket');
   });
 });

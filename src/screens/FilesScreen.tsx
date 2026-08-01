@@ -242,7 +242,7 @@ export default function FilesScreen({ user, prefix, onNavigate, onTitlePath }: P
   const isUploading = Object.keys(progress).length > 0;
   const folderLabel = prefix
     ? prefix.replace(/\/$/, '').split('/').pop() || 'Pasta'
-    : user.display_name || user.username;
+    : user.username;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}

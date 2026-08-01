@@ -47,9 +47,9 @@ beforeEach(() => {
 describe('CloudClient — login()', () => {
   it('returns user on success', async () => {
     mockFetch({
-      user: { id: 'u1', username: 'joao', display_name: 'João', minio_bucket_name: 'joao' },
+      user: { id: 'u1', username: 'joao', email: 'joao@example.com', minio_bucket_name: 'joao' },
     });
-    const user = await login('joao', 'senha123');
+    const user = await login('joao@example.com', 'senha123');
     expect(user.id).toBe('u1');
     expect(user.username).toBe('joao');
   });

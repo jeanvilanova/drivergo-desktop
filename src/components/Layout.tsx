@@ -29,7 +29,7 @@ const NAV_ITEMS: { id: NavView; label: string; icon: (s: number) => React.ReactN
 ];
 
 export default function Layout({ user, view, onNav, onLogout, titlePath, syncBadge, errorBadge, children }: Props) {
-  const initial = (user.display_name || user.username).charAt(0).toUpperCase();
+  const initial = user.username.charAt(0).toUpperCase();
 
   function handleLogout() {
     if (!confirm('Encerrar sessão?')) return;
@@ -87,7 +87,7 @@ export default function Layout({ user, view, onNav, onLogout, titlePath, syncBad
           <div className="user-card">
             <div className="user-avatar">{initial}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="user-name">{user.display_name || user.username}</div>
+              <div className="user-name">{user.username}</div>
               <div className="user-role">{user.minio_bucket_name}</div>
             </div>
             <button className="logout-btn" onClick={handleLogout} title="Sair">

@@ -97,7 +97,7 @@ interface SharedRowProps {
 
 function SharedRow({ share, onShare, sharing }: SharedRowProps) {
   const fileName = share.file_path.split('/').filter(Boolean).pop() || share.file_path;
-  const owner = share.owner_display_name || share.owner_username || '—';
+  const owner = share.owner_username || share.owner_email || '—';
 
   return (
     <div style={{

@@ -15,7 +15,7 @@ function makeUser(overrides: Partial<ProfileUser> = {}): ProfileUser {
   return {
     id: 'user-001',
     username: 'joao',
-    display_name: 'João Silva',
+    email: 'joao@example.com',
     minio_bucket_name: 'joao-bucket',
     ...overrides,
   };
@@ -51,7 +51,7 @@ describe('profile-store — activateProfile()', () => {
     const data = JSON.parse(fs.readFileSync(profileJson, 'utf-8'));
     expect(data.id).toBe('user-001');
     expect(data.username).toBe('joao');
-    expect(data.display_name).toBe('João Silva');
+    expect(data.email).toBe('joao@example.com');
     expect(data.loginAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 

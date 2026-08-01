@@ -74,7 +74,7 @@ export interface SharedWithMeEntry {
   permission: string;
   created_at: string;
   owner_username: string;
-  owner_display_name: string;
+  owner_email: string;
 }
 
 export interface DriveSyncProgress {
@@ -93,7 +93,7 @@ export interface DriveSyncProgress {
 contextBridge.exposeInMainWorld('electronAPI', {
   // Perfil de usuário
   setActiveProfile: (user: {
-    id: string; username: string; display_name: string; minio_bucket_name: string;
+    id: string; username: string; email: string; minio_bucket_name: string;
   }): Promise<void> => ipcRenderer.invoke('profile:activate', user),
   clearActiveProfile: (): Promise<void> => ipcRenderer.invoke('profile:deactivate'),
 

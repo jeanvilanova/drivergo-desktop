@@ -727,7 +727,7 @@ export interface SharedWithMeEntry {
   permission: string;
   created_at: string;
   owner_username: string;
-  owner_display_name: string;
+  owner_email: string;
 }
 
 /**

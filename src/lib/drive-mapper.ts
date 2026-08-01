@@ -144,7 +144,7 @@ export async function syncSharedFilesToDrive(userId: string): Promise<void> {
     let done = 0;
     for (const share of fileShares) {
       const fileName = share.file_path.split('/').filter(Boolean).pop() || share.id;
-      const ownerLabel = share.owner_display_name || share.owner_username || 'desconhecido';
+      const ownerLabel = share.owner_username || share.owner_email || 'desconhecido';
       const localPath = path.join(root, ownerLabel, fileName);
 
       if (!fs.existsSync(localPath)) {

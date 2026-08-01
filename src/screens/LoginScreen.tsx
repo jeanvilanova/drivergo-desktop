@@ -7,23 +7,23 @@ import { IconAlert } from '../components/Icons';
 interface Props { onLogin: (user: CloudUser) => void }
 
 export default function LoginScreen({ onLogin }: Props) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) return;
+    if (!email.trim() || !password.trim()) return;
     setLoading(true);
     setError('');
     try {
-      const user = await login(username.trim(), password);
+      const user = await login(email.trim(), password);
       saveSession(user);
       onLogin(user);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro';
-      setError(msg === 'Invalid credentials' ? 'Usuário ou senha incorretos.' : msg);
+      setError(msg === 'Invalid credentials' ? 'E-mail ou senha incorretos.' : msg);
     } finally {
       setLoading(false);
     }
@@ -82,11 +82,11 @@ export default function LoginScreen({ onLogin }: Props) {
             )}
 
             <div className="field">
-              <label>Usuário</label>
+              <label>E-mail</label>
               <input
-                type="text" placeholder="seu.usuario"
-                autoFocus autoComplete="username"
-                value={username} onChange={(e) => setUsername(e.target.value)}
+                type="email" placeholder="seu@email.com"
+                autoFocus autoComplete="email"
+                value={email} onChange={(e) => setEmail(e.target.value)}
               />
             </div>
 

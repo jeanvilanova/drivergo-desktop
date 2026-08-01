@@ -92,7 +92,7 @@ export default function StorageScreen({ user }: Props) {
         </div>
         <div>
           <div className="hero-title">Armazenamento</div>
-          <div className="hero-sub">Consumo de espaço em nuvem · {user.display_name || user.username}</div>
+          <div className="hero-sub">Consumo de espaço em nuvem · {user.username}</div>
         </div>
         <div className="hero-actions">
           <button
@@ -186,7 +186,7 @@ export default function StorageScreen({ user }: Props) {
         <div className="glass-card">
           <div className="glass-card-label">Detalhes da conta</div>
           {([
-            ['Usuário', user.display_name || user.username],
+            ['Usuário', user.username],
             ['Bucket', user.minio_bucket_name],
             ['Capacidade total', usage.capacityGb ? `${usage.capacityGb} GB` : 'Ilimitado'],
             ['Espaço usado', formatBytes(usage.usedBytes)],

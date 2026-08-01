@@ -5,7 +5,7 @@ import path from 'node:path';
 export interface ProfileUser {
   id: string;
   username: string;
-  display_name: string;
+  email: string;
   minio_bucket_name: string;
 }
 
@@ -45,7 +45,7 @@ export async function activateProfile(user: ProfileUser): Promise<void> {
     JSON.stringify({
       id: user.id,       // original (unsanitized) stored inside the JSON only
       username: user.username,
-      display_name: user.display_name,
+      email: user.email,
       loginAt: new Date().toISOString(),
     }, null, 2),
     'utf-8',
