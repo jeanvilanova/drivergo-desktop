@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { formatBytes, formatDate, login, listFiles, getStorageUsage, trashFile } from './CloudClient';
+import { formatBytes, formatDate, login, listFiles, getStorageUsage, trashFile, setSessionToken } from './CloudClient';
 
 // ── formatBytes ───────────────────────────────────────────────────────────────
 describe('CloudClient — formatBytes()', () => {
@@ -48,10 +48,12 @@ describe('CloudClient — login()', () => {
   it('returns user on success', async () => {
     mockFetch({
       user: { id: 'u1', username: 'joao', email: 'joao@example.com', minio_bucket_name: 'joao' },
+      sessionToken: 'session-abc',
     });
     const user = await login('joao@example.com', 'senha123');
     expect(user.id).toBe('u1');
     expect(user.username).toBe('joao');
+    expect(user.sessionToken).toBe('session-abc');
   });
 
   it('throws on HTTP error', async () => {
@@ -87,6 +89,19 @@ describe('CloudClient — listFiles()', () => {
     await listFiles('user-1');
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.prefix).toBe('');
+  });
+
+  it('includes the current session token set by login()', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ files: [] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    setSessionToken('explicit-test-token');
+    await listFiles('user-1');
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sessionToken).toBe('explicit-test-token');
   });
 });
 

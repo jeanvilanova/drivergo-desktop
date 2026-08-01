@@ -11,6 +11,7 @@ export interface SyncFolderConfig {
 
 interface SyncConfig {
   userId: string | null;
+  sessionToken: string | null;
   folders: SyncFolderConfig[];
 }
 
@@ -21,9 +22,10 @@ function configPath(): string {
 function readConfig(): SyncConfig {
   try {
     const raw = fs.readFileSync(configPath(), 'utf-8');
-    return JSON.parse(raw) as SyncConfig;
+    const parsed = JSON.parse(raw) as Partial<SyncConfig>;
+    return { userId: null, sessionToken: null, folders: [], ...parsed };
   } catch {
-    return { userId: null, folders: [] };
+    return { userId: null, sessionToken: null, folders: [] };
   }
 }
 
@@ -60,4 +62,14 @@ export function setSyncUserId(userId: string): void {
 
 export function getSyncUserId(): string | null {
   return readConfig().userId;
+}
+
+export function setSyncSessionToken(sessionToken: string): void {
+  const cfg = readConfig();
+  cfg.sessionToken = sessionToken;
+  writeConfig(cfg);
+}
+
+export function getSyncSessionToken(): string | null {
+  return readConfig().sessionToken;
 }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Component, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { loadSession } from './lib/session';
+import { setSessionToken } from './lib/CloudClient';
 import type { CloudUser } from './lib/CloudClient';
 import Layout from './components/Layout';
 import LoginScreen from './screens/LoginScreen';
@@ -119,10 +120,11 @@ function App() {
 
     const saved = loadSession();
     if (saved) {
+      setSessionToken(saved.sessionToken);
       // Ativa o perfil antes de restaurar as configurações, garantindo que
       // os stores leiam os arquivos do diretório correto para este usuário.
       window.electronAPI.setActiveProfile(saved)
-        .then(() => window.electronAPI.syncSetUser(saved.id))
+        .then(() => window.electronAPI.syncSetUser(saved.id, saved.sessionToken))
         .catch(console.error);
       setUser(saved);
     } else {
@@ -150,7 +152,7 @@ function App() {
       // Ativa o perfil do usuário antes de carregar qualquer configuração,
       // isolando os dados de cada usuário DriveGO em sua própria pasta.
       window.electronAPI.setActiveProfile(u)
-        .then(() => window.electronAPI.syncSetUser(u.id))
+        .then(() => window.electronAPI.syncSetUser(u.id, u.sessionToken))
         .catch(console.error);
       setUser(u);
     }} />

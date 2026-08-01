@@ -19,6 +19,7 @@ function makeUser(overrides: Partial<CloudUser> = {}): CloudUser {
     username: 'testuser',
     email: 'testuser@example.com',
     minio_bucket_name: 'testuser-bucket',
+    sessionToken: 'token-abc',
     ...overrides,
   };
 }

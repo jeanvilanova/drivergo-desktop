@@ -107,7 +107,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   savePath: (defaultName: string): Promise<string | null> => ipcRenderer.invoke('dialog:savePath', defaultName),
 
   // Sync
-  syncSetUser: (userId: string): Promise<void> => ipcRenderer.invoke('sync:setUser', userId),
+  syncSetUser: (userId: string, sessionToken: string): Promise<void> => ipcRenderer.invoke('sync:setUser', userId, sessionToken),
   syncGetFolders: (): Promise<SyncFolderInfo[]> => ipcRenderer.invoke('sync:getFolders'),
   syncGetDefaultFolders: (): Promise<DefaultFolder[]> => ipcRenderer.invoke('sync:getDefaultFolders'),
   syncPickFolder: (): Promise<string | null> => ipcRenderer.invoke('sync:pickFolder'),

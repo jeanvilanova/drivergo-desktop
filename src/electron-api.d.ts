@@ -27,7 +27,7 @@ declare global {
       renameFile: (oldPath: string, newPath: string) => Promise<void>;
 
       // Sync
-      syncSetUser: (userId: string) => Promise<void>;
+      syncSetUser: (userId: string, sessionToken: string) => Promise<void>;
       syncGetFolders: () => Promise<SyncFolderInfo[]>;
       syncGetDefaultFolders: () => Promise<DefaultFolder[]>;
       syncPickFolder: () => Promise<string | null>;

@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import chokidar from 'chokidar';
 import {
   getSyncFolders, addSyncFolder, removeSyncFolder,
-  setSyncUserId, getSyncUserId,
+  setSyncUserId, getSyncUserId, setSyncSessionToken, getSyncSessionToken,
   type SyncFolderConfig,
 } from './lib/sync-store';
 import { uploadFileFromDisk, walkFolder, listRemoteFileEtags, isLockedFileError } from './lib/uploader-main';
@@ -969,8 +969,9 @@ ipcMain.handle('dialog:savePath', async (_e, defaultName: string) => {
 });
 
 // Set current user — also triggers auto-sync for all saved folders
-ipcMain.handle('sync:setUser', (_e, userId: string) => {
+ipcMain.handle('sync:setUser', (_e, userId: string, sessionToken?: string) => {
   setSyncUserId(userId);
+  if (sessionToken) setSyncSessionToken(sessionToken);
   logInfo('sistema', `Usuário autenticado: ${userId.slice(0, 8)}…`);
 
   // Trigger drive file sync once per session (after auth)

@@ -7,6 +7,7 @@ export interface CloudUser {
   username: string;
   email: string;
   minio_bucket_name: string;
+  sessionToken: string;
 }
 
 export interface CloudFile {
@@ -31,11 +32,19 @@ const headers = {
   apikey: ANON_KEY,
 };
 
-async function call<T>(fn: string, body: unknown): Promise<T> {
+// Set once after login/session-restore (see renderer.tsx) and injected into
+// every call below — every other user-facing edge function now requires a
+// real session token matching the userId, not just a client-supplied id.
+let currentSessionToken = '';
+export function setSessionToken(token: string): void {
+  currentSessionToken = token;
+}
+
+async function call<T>(fn: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${BASE_URL}/${fn}`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, sessionToken: currentSessionToken }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -43,8 +52,10 @@ async function call<T>(fn: string, body: unknown): Promise<T> {
 }
 
 export async function login(email: string, password: string): Promise<CloudUser> {
-  const data = await call<{ user: CloudUser }>('user-login', { email, password });
-  return data.user;
+  const data = await call<{ user: Omit<CloudUser, 'sessionToken'>; sessionToken: string }>('user-login', { email, password });
+  const user = { ...data.user, sessionToken: data.sessionToken };
+  setSessionToken(data.sessionToken);
+  return user;
 }
 
 export async function listFiles(userId: string, prefix?: string): Promise<CloudFile[]> {
@@ -122,6 +133,7 @@ export async function uploadFile(
     xhr.setRequestHeader('Content-Type', mimeType || 'application/octet-stream');
     xhr.setRequestHeader('x-user-id', userId);
     xhr.setRequestHeader('x-file-path', encodeURIComponent(filePath));
+    xhr.setRequestHeader('x-session-token', currentSessionToken);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {

@@ -4,9 +4,20 @@ import https from 'node:https';
 import http from 'node:http';
 import os from 'node:os';
 
+import { getSyncSessionToken } from './sync-store';
+
 const BASE_URL = 'https://sotduhwtkbswokzrorpf.supabase.co/functions/v1';
 const ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvdGR1aHd0a2Jzd29renJvcnBmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyMTkwNTcsImV4cCI6MjA5MDc5NTA1N30.cXfR1DaHRQ2XwsXppbTn7W1FYEnKtlZVkSh9sMN2ikk';
+
+// Read fresh (not cached) at every call site, same as callers already do
+// for userId via getSyncUserId() — the app can start file watchers at boot
+// using the persisted userId before the renderer ever calls sync:setUser,
+// so a module-level variable set only through that IPC call would still be
+// empty during that window even though the real token is already on disk.
+function currentSessionToken(): string {
+  return getSyncSessionToken() || '';
+}
 
 const MIME_MAP: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
@@ -144,7 +155,7 @@ async function getPresignedPutUrl(
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ userId, filePath: remotePath, contentType, expectedEtag }),
+    body: JSON.stringify({ userId, filePath: remotePath, contentType, expectedEtag, sessionToken: currentSessionToken() }),
   });
 
   if (res.status === 409) {
@@ -261,7 +272,7 @@ export async function listRemotePaths(
         apikey: ANON_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userId, prefix }),
+      body: JSON.stringify({ userId, prefix, sessionToken: currentSessionToken() }),
     });
     if (!res.ok) return new Set();
     const json = await res.json();
@@ -292,7 +303,7 @@ export async function listRemoteFileEtags(
         apikey: ANON_KEY,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ userId, prefix }),
+      body: JSON.stringify({ userId, prefix, sessionToken: currentSessionToken() }),
     });
     if (!res.ok) return new Map();
     const json = await res.json();
@@ -336,7 +347,7 @@ async function multipartCall(
           apikey: ANON_KEY,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ userId, filePath: remotePath, action, ...extra }),
+        body: JSON.stringify({ userId, filePath: remotePath, action, sessionToken: currentSessionToken(), ...extra }),
       });
     } catch (err) {
       // Couldn't even reach the edge function (network blip) — retry.
@@ -578,7 +589,7 @@ export async function getDownloadUrl(userId: string, remotePath: string): Promis
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ userId, filePath: remotePath }),
+    body: JSON.stringify({ userId, filePath: remotePath, sessionToken: currentSessionToken() }),
   });
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -648,7 +659,7 @@ export async function downloadSharedFileToLocal(
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ userId, shareId }),
+    body: JSON.stringify({ userId, shareId, sessionToken: currentSessionToken() }),
   });
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -712,7 +723,7 @@ export async function listCloudFiles(
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ userId, prefix, recursive }),
+    body: JSON.stringify({ userId, prefix, recursive, sessionToken: currentSessionToken() }),
   });
   if (!res.ok) return [];
   const json = await res.json();
@@ -741,7 +752,7 @@ export async function listSharedWithMe(userId: string): Promise<SharedWithMeEntr
       apikey: ANON_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ action: 'list-shared-with-me', userId }),
+    body: JSON.stringify({ action: 'list-shared-with-me', userId, sessionToken: currentSessionToken() }),
   });
   if (!res.ok) return [];
   const json = await res.json();
@@ -767,6 +778,7 @@ export async function generateShareLink(
       userId,
       filePath,
       isFolder,
+      sessionToken: currentSessionToken(),
       baseUrl: 'https://drivego.app.br',
     }),
   });
