@@ -29,6 +29,13 @@ const config: ForgeConfig = {
       icon: './assets/icon.ico',
       shortcutFolderName: 'DriveGo',
       exe: 'DriveGo.exe',
+      // Fixed forever — electron-wix-msi generates a random UpgradeCode on
+      // every build when this isn't set. Windows Installer uses UpgradeCode
+      // (not ProductCode, which is *supposed* to change per version) to
+      // recognize "same app, new version" and replace the old install; a
+      // random one each build made every update register as an unrelated
+      // program in "Programas e Recursos" instead of upgrading in place.
+      upgradeCode: '2CFB6120-99D4-4470-BAB3-D1A69C931F64',
       ui: {
         chooseDirectory: false,
       },
